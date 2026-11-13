@@ -49,9 +49,15 @@ def validate(event):
             raise ValueError(f"некорректное поле {field}")
     payload = event["payload"]
     kind = event["event_type"]
-    if kind not in (
+    if isinstance(kind, str) and kind.startswith(("skill.", "subskill.")):
+        # Historical skill events can contain only skill-specific data.
+        if not isinstance(payload, dict):
+            raise ValueError("некорректная запись навыка")
+        if "xp_by_stat" not in payload:
+            return
+    elif kind not in (
         "activity.completed", "system.legacy_imported", "rules.updated",
-        "correction.applied",
+        "correction.applied", "perk.updated", "periods.advanced",
     ):
         raise ValueError("неизвестный тип события")
     for key, row in payload["xp_by_stat"].items():

@@ -6,9 +6,14 @@ from uuid import uuid4
 from liferpg.domain.activity_xp import game_date, repetition_factor
 from liferpg.domain.activities import find_activities
 from liferpg.domain.character import ATTRIBUTE_NAMES
+from liferpg.domain.perks import PERKS, active_perks, describe_perk
+from liferpg.domain.quests import QUESTS, quest_state
+from liferpg.domain.skills import (
+    MASTERY_XP, ROOT_LEVEL_LIMIT, writing_progress,
+)
 from liferpg.game import (
     complete, credits, effective_completions, ensure_progression_rules,
-    project, recorded_awards, revise_completion,
+    project, recorded_awards, revise_completion, set_perk, settle_periods,
 )
 from liferpg.journal import journal_lock, read_events
 
@@ -37,7 +42,9 @@ def show_entries(events, audit):
             else:
                 print(f"#{number} — {payload['activity_name_snapshot']}")
                 show_xp(credits(payload))
-        elif audit:
+        elif audit and not event["event_type"].startswith(
+            ("skill.", "subskill.")
+        ):
             print(event["message_ru"])
             replacement = payload.get("replacement")
             if replacement is not None:
@@ -63,6 +70,20 @@ def read_intensity():
 
 def show_levels(consequences):
     for effect in consequences:
+        if effect["type"] == "skill.xp_credited" and (
+            effect.get("skill") == "writing"
+        ):
+            print(f"Писательство +{effect['xp']} XP навыка")
+        if effect["type"] == "skill.mastered" and (
+            effect.get("skill") == "writing"
+        ):
+            print("Писательство: мастерский навык!")
+        if effect["type"] == "quest.period_completed":
+            print(f"Задание выполнено: {QUESTS[effect['quest']][0]}")
+        if effect["type"] == "perk.assigned" and effect["perk"] == "victory":
+            print("Получен перк «Победа над собой».")
+        if effect["type"] not in {"stat.leveled_up", "stat.level_revoked"}:
+            continue
         name = ATTRIBUTE_NAMES[effect["stat"]]
         if effect["type"] == "stat.level_revoked":
             print(f"{name}: уровень {effect['level']} снят")
@@ -71,6 +92,25 @@ def show_levels(consequences):
 
 
 def journal_command(command, path, activities, choose_activity):
+    if command == "9":
+        show_perks(path, activities)
+        return
+    if command == "12":
+        developer_menu(path, activities)
+        return
+    if command == "11":
+        with journal_lock(path):
+            skill = writing_progress(read_events(path))
+        level, xp = skill["level"], skill["xp"]
+        limit = MASTERY_XP if level == ROOT_LEVEL_LIMIT else level * 1000
+        print(f"Писательство: уровень {level}/{ROOT_LEVEL_LIMIT}")
+        print(f"Опыт: {xp}/{limit} XP")
+        status = "мастерский" if skill["mastered"] else "в развитии"
+        print(f"Статус: {status}")
+        if level == ROOT_LEVEL_LIMIT:
+            print(f"К мастерству: {min(xp, MASTERY_XP)}/{MASTERY_XP} XP")
+        print("Работа над текстом: +50 XP навыка")
+        return
     if command in {"5", "6"}:
         try:
             target = int(input("Номер выполнения из истории: "))
@@ -93,6 +133,7 @@ def journal_command(command, path, activities, choose_activity):
         show_levels(payload["consequences"])
         return
 
+    settle_periods(path)
     with journal_lock(path):
         events = read_events(path)
     character, counts = project(events)
@@ -111,6 +152,19 @@ def journal_command(command, path, activities, choose_activity):
         print(character)
     elif command in {"4", "8"}:
         show_entries(events, command == "8")
+    elif command == "10":
+        state = quest_state(events)
+        for key, (name, _, _, _) in QUESTS.items():
+            period = state["completed"].get(key, "—")
+            streak = state["streaks"].get(key, {})
+            duration = streak.get("duration", 0)
+            bonus = min(25, streak.get("successful", 0))
+            status = " (под угрозой)" if streak.get("at_risk") else ""
+            series = f"серия {duration}{status}, +{bonus}% TBD"
+            print(f"{name}: {period}, {series}")
+        banks = state["banks"]
+        daily, weekly = banks["daily"], banks["weekly"]
+        print(f"Заморозки: день {daily}/5, неделя {weekly}/3")
     elif command == "7":
         entries = effective_completions(events)
         count = sum(
@@ -126,6 +180,12 @@ def journal_command(command, path, activities, choose_activity):
 
 def run_journal_menu(path, activities, menu, choose_activity):
     ensure_progression_rules(path)
+    settle_periods(path)
+    menu = menu.replace(
+        "0. Выход",
+        "9. Перки\n10. Задания и серии\n11. Навыки\n"
+        "12. Режим разработчика\n0. Выход",
+    )
     while True:
         print(menu)
         try:
@@ -137,3 +197,31 @@ def run_journal_menu(path, activities, menu, choose_activity):
             return 0
         except (ValueError, OSError) as error:
             print(f"Ошибка: {error}")
+
+
+def show_perks(path, activities):
+    with journal_lock(path):
+        perks, _ = active_perks(read_events(path))
+    for key, name in PERKS.items():
+        status = "включён" if key in perks else "выключен"
+        print(f"{key}: {name} ({status}). {describe_perk(key, activities)}")
+
+
+def developer_menu(path, activities):
+    print("Режим разработчика включён.")
+    try:
+        while True:
+            show_perks(path, activities)
+            perk = input("Код перка (0 — выйти из режима): ").strip()
+            if perk == "0":
+                return
+            choice = input("1 — включить, 0 — выключить: ").strip()
+            if choice not in {"0", "1"}:
+                print("Выбери 1 или 0.")
+                continue
+            try:
+                set_perk(path, perk, choice == "1", developer_mode=True)
+            except ValueError as error:
+                print(f"Ошибка: {error}")
+    finally:
+        print("Режим разработчика выключен.")

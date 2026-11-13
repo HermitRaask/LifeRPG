@@ -68,7 +68,7 @@ def test_replay_deduplicates_and_restores_from_recorded_results(tmp_path):
     events[0]["payload"]["intensity_factor"] = "999"
     character, counts = project(events)
     will = character.attribute("will")
-    assert (will.level, will.current_xp) == (2, 50)
+    assert (will.level, will.current_xp) == (3, 0)
     assert counts == {("2026-11-12", "meditation"): 2,
                       ("2026-11-13", "meditation"): 1}
 
@@ -88,12 +88,12 @@ def test_fractional_xp_is_rounded_down_and_restored(tmp_path):
     activity = catalog()["training"]
     event = complete(path, activity, "1", str(uuid4()))
 
-    assert event["rules_version"] == 3
+    assert event["rules_version"] == 5
     assert event["payload"]["xp_rounding"] == "floor"
     character, _ = project(read_events(path))
-    assert character.attribute("strength").current_xp == 25
-    assert character.attribute("endurance").current_xp == 2
-    assert character.attribute("will").current_xp == 2
+    assert character.attribute("strength").current_xp == 13
+    assert character.attribute("endurance").current_xp == 1
+    assert character.attribute("will").current_xp == 3
 
 
 @pytest.mark.parametrize("tail", [b'{"seq":', b"invalid\n"])
@@ -133,11 +133,11 @@ def test_default_cli_imports_legacy_once_and_restores(
     commands = iter(["2", "meditation", "", "3", "0"])
     monkeypatch.setattr("builtins.input", lambda prompt: next(commands))
     assert cli.main() == 0
-    assert "Воля: уровень 2, 0/125 XP" in capsys.readouterr().out
+    assert "Воля: уровень 2, 25/125 XP" in capsys.readouterr().out
 
     commands = iter(["3", "0"])
     assert cli.main() == 0
-    assert "Воля: уровень 2, 0/125 XP" in capsys.readouterr().out
+    assert "Воля: уровень 2, 25/125 XP" in capsys.readouterr().out
     events = read_events(tmp_path / "events.jsonl")
     assert [event["event_type"] for event in events] == [
         "system.legacy_imported", "rules.updated", "activity.completed",

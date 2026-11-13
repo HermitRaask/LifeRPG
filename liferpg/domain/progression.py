@@ -5,6 +5,8 @@ def xp_required(level: int) -> int:
     """Return the XP needed to advance from the given level."""
     if level < 1:
         raise ValueError("Уровень должен быть не ниже 1.")
+    if level >= 25:
+        return 1000 + 100 * (level - 25)
     return 100 + 25 * (level - 1)
 
 

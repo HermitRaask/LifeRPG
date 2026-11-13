@@ -1,13 +1,19 @@
 """Run journal-backed game operations and project recorded results."""
 
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 
 from liferpg.domain.activity_xp import (
     INTENSITY, RULES_VERSION, completion_xp, game_date, repetition_factor,
 )
 from liferpg.domain.character import ATTRIBUTE_NAMES, Character
+from liferpg.domain.perks import (
+    EFFECTS, active_perks, effects_for, lazy_replacement,
+)
+from liferpg.domain.progression import xp_required
+from liferpg.domain.quests import advance, evaluate, quest_state
+from liferpg.domain.skills import WRITING, award_writing
 from liferpg.journal import append_event, journal_lock, read_events
 
 
@@ -50,7 +56,7 @@ def project(events):
             continue
         seen.add(operation)
         payload = event["payload"]
-        for key, row in payload["xp_by_stat"].items():
+        for key, row in payload.get("xp_by_stat", {}).items():
             attribute = character.attribute(key)
             if (attribute.level, attribute.current_xp) != (
                 row["level_before"], row["xp_before"]
@@ -100,7 +106,30 @@ def complete(path, activity, intensity, operation, local=None):
         before, counts = project(events)
         key = (game_date(local).isoformat(), activity.key)
         number = counts.get(key, 0) + 1
-        payload = completion_payload(activity, intensity, number, before)
+        perks, victory = active_perks(events)
+        payload = completion_payload(
+            activity, intensity, number, before, perks
+        )
+        will = payload["xp_by_stat"].get("will")
+        will_level = before.attribute("will").level
+        if will is not None:
+            will_level = will["level_after"]
+        payload["consequences"].extend(
+            lazy_replacement(perks, victory, will_level)
+        )
+        day = game_date(local)
+        state = quest_state(events)
+        payload["consequences"].extend(advance(state, day))
+        completions = [
+            (date.fromisoformat(day_key), item["activity_id"])
+            for day_key, item in effective_completions(events).values()
+            if item is not None
+        ]
+        completions.append((day, activity.key))
+        payload["consequences"].extend(evaluate(state, day, completions))
+        payload["quest_state"] = state
+        if activity.key == WRITING:
+            award_writing(events, payload)
         credited = credits(payload)
         details = ", ".join(
             f"{ATTRIBUTE_NAMES[key]} +{value} XP"
@@ -114,9 +143,10 @@ def complete(path, activity, intensity, operation, local=None):
         return event
 
 
-def completion_payload(activity, intensity, number, before):
+def completion_payload(activity, intensity, number, before, perks=()):
     base = activity.rewards()
-    credited = completion_xp(base, intensity, number)
+    effects = effects_for(activity.key, base, perks)
+    credited = completion_xp(base, intensity, number, effects)
     after = deepcopy(before)
     after.apply(credited)
     rows = xp_rows(before, after, base, credited)
@@ -124,7 +154,7 @@ def completion_payload(activity, intensity, number, before):
         "activity_id": activity.key,
         "activity_name_snapshot": activity.name,
         "activity_version": 1, "intensity": intensity,
-        "xp_rounding": "floor",
+        "xp_rounding": "floor", "effect_factors": effects,
         "intensity_factor": str(INTENSITY[intensity]),
         "occurrence_index_in_game_day": number,
         "diminishing_factor": str(repetition_factor(number)),
@@ -216,16 +246,33 @@ def level_changes(rows):
     ]
 
 
-def state_change(events, kind, entity_id, entries, payload, message):
+def state_change(events, kind, entity_id, payload, message):
     before, _ = project(events)
-    after = Character()
-    for award in recorded_awards(events, entries):
-        after.apply(award)
+    after = deepcopy(before)
+    if kind == "correction.applied":
+        previous = payload["previous"]
+        replacement = payload["replacement"]
+        old = credits(previous) if previous else {}
+        new = credits(replacement) if replacement else {}
+        for key in old.keys() | new.keys():
+            delta = new.get(key, 0) - old.get(key, 0)
+            if delta > 0:
+                after.attribute(key).award_xp(delta)
+            elif delta < 0:
+                stat = after.attribute(key)
+                level, remaining = stat.level, stat.current_xp + delta
+                while remaining < 0 and level > 1:
+                    level -= 1
+                    remaining += xp_required(level)
+                stat.restore_progress(level, max(0, remaining))
     zeros = dict.fromkeys(ATTRIBUTE_NAMES, 0)
     rows = xp_rows(before, after, zeros, zeros)
-    payload = {
-        **payload, "xp_by_stat": rows, "consequences": level_changes(rows),
-    }
+    effects = level_changes(rows)
+    perks, victory = active_perks(events)
+    effects.extend(lazy_replacement(
+        perks, victory, after.attribute("will").level
+    ))
+    payload = {**payload, "xp_by_stat": rows, "consequences": effects}
     return make_event(
         events, str(uuid4()), kind, entity_id, datetime.now().astimezone(),
         payload, message,
@@ -239,7 +286,6 @@ def ensure_progression_rules(path):
             return
         event = state_change(
             events, "rules.updated", "progression",
-            effective_completions(events),
             {"previous_rules_version": 1, "base_xp": 100,
              "previous_increment_xp": 100, "increment_xp": 25},
             "Изменены пороги уровней: 100 XP, затем +25 XP за уровень.",
@@ -263,17 +309,60 @@ def revise_completion(path, target, activity, intensity):
                 and current["activity_id"] == activity.key
                 for seq, (date, current) in entries.items()
             )
+            perks, _ = active_perks(events)
             replacement = completion_payload(
-                activity, intensity, number, Character()
+                activity, intensity, number, Character(), perks
             )
-        entries[target] = (day, replacement)
         action = "Исправление" if replacement is not None else "Отмена"
         event = state_change(
             events, "correction.applied", events[target - 1]["event_id"],
-            entries,
             {"target_seq": target, "replacement": replacement,
              "previous": previous},
             f"{action} выполнения #{target}",
         )
         append_event(path, event)
         return event
+
+
+def set_perk(path, perk, enabled, *, developer_mode=False):
+    if not developer_mode:
+        raise ValueError("Переключение доступно в режиме разработчика.")
+    if perk not in EFFECTS and perk != "sport":
+        raise ValueError("Перк недоступен для выбора.")
+    with journal_lock(path):
+        events = read_events(path)
+        _, victory = active_perks(events)
+        character, _ = project(events)
+        will = character.attribute("will").level
+        if enabled and perk == "lazy" and (victory or will >= 5):
+            raise ValueError("Перк Ленивый уже пройден или Воля достигла 5.")
+        kind = "perk.assigned" if enabled else "perk.removed"
+        payload = {"xp_by_stat": {}, "consequences": [
+            {"type": kind, "perk": perk},
+        ]}
+        event = make_event(
+            events, str(uuid4()), "perk.updated", perk,
+            datetime.now().astimezone(), payload,
+            f"{kind}: {perk}",
+        )
+        append_event(path, event)
+
+
+def settle_periods(path, local=None):
+    local = local if local is not None else datetime.now().astimezone()
+    with journal_lock(path):
+        events = read_events(path)
+        project(events)
+        state = quest_state(events)
+        old_day = state["day"]
+        if old_day is None:
+            return
+        effects = advance(state, game_date(local))
+        if state["day"] == old_day:
+            return
+        event = make_event(
+            events, str(uuid4()), "periods.advanced", "local-player", local,
+            {"xp_by_stat": {}, "quest_state": state, "consequences": effects},
+            "Обработаны завершённые игровые периоды.",
+        )
+        append_event(path, event)
