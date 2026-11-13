@@ -1,20 +1,34 @@
-"""Run the first LifeRPG console demo."""
+"""Console entry point for LifeRPG."""
 
-from progression import award_xp, get_stat_progress
+import argparse
+from pathlib import Path
+
+from activities import (
+    Activity, ActivityLog, ManualXPAward, apply_action, catalog,
+    find_activities,
+)
+from character import Character
+from storage import load_log, save_log
+
+DEFAULT_STATE = Path(__file__).resolve().parent / "data" / "state.json"
+
+MENU = """
+1. Каталог, поиск и фильтр
+2. Выполнить активность
+3. Показать характеристики
+4. Показать историю
+5. Исправить выполнение
+6. Отменить выполнение
+7. Сводка
+8. Показать исходные записи и исправления
+0. Выход"""
 
 
-def main():
-    level = 1
-    current_xp = 0
-
+def demo_pr01() -> int:
+    """Run the original manual Strength award on a fresh character."""
+    character = Character()
     print("Начальные характеристики персонажа")
-    print(get_stat_progress("Сила", level, current_xp))
-    print(get_stat_progress("Ловкость", level, current_xp))
-    print(get_stat_progress("Выносливость", level, current_xp))
-    print(get_stat_progress("Интеллект", level, current_xp))
-    print(get_stat_progress("Творчество", level, current_xp))
-    print(get_stat_progress("Воля", level, current_xp))
-
+    print(character)
     try:
         raw_amount = input("Сколько XP начислить Силе? ")
     except EOFError:
@@ -26,13 +40,96 @@ def main():
         print("Ошибка: введи целое количество XP.")
         return 1
     try:
-        level, current_xp = award_xp(level, current_xp, amount)
+        apply_action(character, ManualXPAward(amount))
     except ValueError as error:
         print(f"Ошибка: {error}")
         return 1
-
-    print(get_stat_progress("Сила", level, current_xp))
+    print(character.attribute("strength"))
     return 0
+
+
+def choose_activity(activities: dict[str, Activity]) -> Activity:
+    key = input("Код активности (см. каталог): ").strip().casefold()
+    if key not in activities:
+        raise ValueError("Активность с таким кодом не найдена.")
+    return activities[key]
+
+
+def show_history(log: ActivityLog, audit: bool = False) -> None:
+    entries = log.events if audit else log.history()
+    if not entries:
+        print("История пока пуста.")
+    for entry in entries:
+        label = "Исправление" if entry.correction else "Выполнение"
+        print(f"{label}: {entry}" if audit else str(entry))
+
+
+def change_history(
+    command: str, log: ActivityLog, activities: dict[str, Activity],
+    path: Path
+) -> ActivityLog:
+    """Keep the current session intact if validation or saving fails."""
+    updated = log.copy()
+    if command == "2":
+        updated.record(choose_activity(activities))
+    else:
+        raw_number = input("Номер записи из истории: ").strip()
+        try:
+            number = int(raw_number)
+        except ValueError:
+            raise ValueError("Введи целый номер записи.") from None
+        activity = choose_activity(activities) if command == "5" else None
+        updated.correct(number, activity)
+    save_log(path, updated)
+    print("История сохранена.")
+    return updated
+
+
+def run_menu(path: Path) -> int:
+    activities = catalog()
+    try:
+        log = load_log(path, activities)
+    except (ValueError, OSError) as error:
+        print(f"Ошибка чтения истории: {error}")
+        return 1
+
+    while True:
+        print(MENU)
+        try:
+            command = input("Выбор: ").strip()
+            if command == "0":
+                return 0
+            if command == "1":
+                query = input("Название (Enter — все): ").strip()
+                category = input("Категория (Enter — все): ").strip()
+                matches = find_activities(activities, query, category)
+                if not matches:
+                    print("Подходящих активностей нет.")
+                for activity in matches:
+                    print(activity)
+            elif command in {"2", "5", "6"}:
+                log = change_history(command, log, activities, path)
+            elif command == "3":
+                print(log.character())
+            elif command in {"4", "8"}:
+                show_history(log, audit=command == "8")
+            elif command == "7":
+                count, xp = log.summary()
+                print(f"Выполнений: {count}, всего XP: {xp}")
+            else:
+                print("Неизвестная команда.")
+        except EOFError:
+            return 0
+        except (ValueError, OSError) as error:
+            print(f"Ошибка: {error}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="LifeRPG")
+    parser.add_argument("--demo-pr01", action="store_true")
+    parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
+    args = parser.parse_args()
+    return demo_pr01() if args.demo_pr01 else run_menu(args.state)
 
 
 if __name__ == "__main__":

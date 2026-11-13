@@ -28,3 +28,6 @@ events.jsonl
 # Codex
 AGENTS.md
 .codex/
+
+# Local activity history
+/data/state.json
