@@ -1,6 +1,8 @@
 """Console commands backed by the event journal."""
 
-from datetime import datetime
+from datetime import date, datetime
+
+from liferpg.domain.achievements import ACHIEVEMENTS, unlocked
 from uuid import uuid4
 
 from liferpg.domain.activity_xp import game_date, repetition_factor
@@ -8,11 +10,14 @@ from liferpg.domain.activities import find_activities
 from liferpg.domain.character import ATTRIBUTE_NAMES
 from liferpg.domain.perks import PERKS, active_perks, describe_perk
 from liferpg.domain.quests import QUESTS, quest_state
+from liferpg.domain.rust import rust_state
+from liferpg.statistics import manual_player_level, period_statistics
 from liferpg.domain.skills import (
     MASTERY_XP, ROOT_LEVEL_LIMIT, writing_progress,
 )
 from liferpg.game import (
-    complete, credits, effective_completions, ensure_progression_rules,
+    complete, credits, developer_batch, developer_update,
+    effective_completions, ensure_progression_rules,
     project, recorded_awards, revise_completion, set_perk, settle_periods,
 )
 from liferpg.journal import journal_lock, read_events
@@ -70,6 +75,9 @@ def read_intensity():
 
 def show_levels(consequences):
     for effect in consequences:
+        if effect["type"] == "achievement.unlocked":
+            key = effect["achievement"]
+            print(f"Достижение: {ACHIEVEMENTS.get(key, key)}")
         if effect["type"] == "skill.xp_credited" and (
             effect.get("skill") == "writing"
         ):
@@ -130,6 +138,10 @@ def journal_command(command, path, activities, choose_activity):
         print(event["message_ru"])
         number = payload["occurrence_index_in_game_day"]
         print(f"Повтор за игровой день: {number}")
+        for key, row in payload["xp_by_stat"].items():
+            if row.get("rust_paid"):
+                print(f"Заржавел: {ATTRIBUTE_NAMES[key]}")
+                print(f"  Погашено {row['rust_paid']} XP")
         show_levels(payload["consequences"])
         return
 
@@ -150,6 +162,16 @@ def journal_command(command, path, activities, choose_activity):
             print(f"{activity} — выполнено {number}; следующее ×{factor:g}")
     elif command == "3":
         print(character)
+        debts, _, _ = rust_state(events)
+        for key, amount in debts.items():
+            if amount:
+                print(f"Заржавел: {ATTRIBUTE_NAMES[key]}, долг {amount} XP")
+        level = manual_player_level(events)
+        print(f"Общий уровень: {level if level is not None else 'TBD'}")
+    elif command == "13":
+        show_achievements(events)
+    elif command == "14":
+        show_statistics(events)
     elif command in {"4", "8"}:
         show_entries(events, command == "8")
     elif command == "10":
@@ -158,7 +180,8 @@ def journal_command(command, path, activities, choose_activity):
             period = state["completed"].get(key, "—")
             streak = state["streaks"].get(key, {})
             duration = streak.get("duration", 0)
-            bonus = min(25, streak.get("successful", 0))
+            bonus = min(25, streak.get("bonus_periods",
+                                       streak.get("successful", 0)))
             status = " (под угрозой)" if streak.get("at_risk") else ""
             series = f"серия {duration}{status}, +{bonus}% TBD"
             print(f"{name}: {period}, {series}")
@@ -184,7 +207,7 @@ def run_journal_menu(path, activities, menu, choose_activity):
     menu = menu.replace(
         "0. Выход",
         "9. Перки\n10. Задания и серии\n11. Навыки\n"
-        "12. Режим разработчика\n0. Выход",
+        "12. Режим разработчика\n13. Достижения\n14. Статистика\n0. Выход",
     )
     while True:
         print(menu)
@@ -212,7 +235,16 @@ def developer_menu(path, activities):
     try:
         while True:
             show_perks(path, activities)
-            perk = input("Код перка (0 — выйти из режима): ").strip()
+            print("1 — партия, 2 — серия, 3 — уровень, 4 — достижение")
+            perk = input("Команда или код перка (0 — выход): ").strip()
+            if perk in {"1", "2", "3", "4"}:
+                try:
+                    developer_command(
+                        path, activities, perk, developer_mode=True
+                    )
+                except (ValueError, OSError) as error:
+                    print(f"Ошибка: {error}")
+                continue
             if perk == "0":
                 return
             choice = input("1 — включить, 0 — выключить: ").strip()
@@ -225,3 +257,73 @@ def developer_menu(path, activities):
                 print(f"Ошибка: {error}")
     finally:
         print("Режим разработчика выключен.")
+
+
+def developer_command(path, activities, command, *, developer_mode=False):
+    if not developer_mode:
+        raise ValueError("Команда доступна в режиме разработчика.")
+    if command == "1":
+        key = input("Код активности: ").strip()
+        if key not in activities:
+            raise ValueError("Неизвестная активность.")
+        intensity = read_intensity()
+        amount = int(input("Количество: "))
+        done, totals, skill, error = developer_batch(
+            path, activities[key], intensity, amount, developer_mode=True
+        )
+        print(f"Записано {done}/{amount}; XP навыков: {skill}")
+        show_xp(totals)
+        if error:
+            print(f"Партия остановлена: {error}")
+        return
+    if command == "2":
+        print(", ".join(QUESTS))
+        key = input("Код серии: ").strip()
+        action, value = "streak", int(input("Длина: "))
+    elif command == "3":
+        print("player, " + ", ".join(ATTRIBUTE_NAMES))
+        key = input("Код уровня: ").strip()
+        action, value = "level", int(input("Уровень: "))
+    elif command == "4":
+        with journal_lock(path):
+            show_achievements(read_events(path))
+        key = input("Код достижения: ").strip()
+        action, value = "achievement", None
+    else:
+        raise ValueError("Неизвестная команда.")
+    result = developer_update(path, action, key, value, developer_mode=True)
+    print("Изменение сохранено." if result else "Достижение уже открыто.")
+
+
+def show_achievements(events):
+    opened = unlocked(events)
+    for key, name in ACHIEVEMENTS.items():
+        status = "открыто" if key in opened else "закрыто"
+        print(f"{key}: {name} ({status})")
+
+
+def show_statistics(events):
+    start = input("С (ГГГГ-ММ-ДД или Enter): ").strip()
+    end = input("По (ГГГГ-ММ-ДД или Enter): ").strip()
+    start = date.fromisoformat(start).isoformat() if start else None
+    end = date.fromisoformat(end).isoformat() if end else None
+    report = period_statistics(events, start, end)
+    print(f"Выполнений: {len(report['history'])}")
+    print(f"Получено XP: {sum(report['xp'].values())}")
+    print(f"Списания XP: {report['decay']}, погашение: {report['paid']} XP")
+    for day, name in report["history"]:
+        print(f"{day}: {name}")
+    for day, xp in report["top_days"][:5]:
+        print(f"Продуктивный день {day}: {xp} XP")
+    for day, key, before, after in report["levels"]:
+        print(f"{day}: {ATTRIBUTE_NAMES[key]} {before} → {after}")
+    for day, kind, quest in report["quests"]:
+        name = QUESTS[quest][0] if quest in QUESTS else quest
+        print(f"{day}: {name}, {kind}")
+    print(f"XP навыков: {report['skills']}")
+    for name, stats in report["directions"].items():
+        print(f"{name}:")
+        if stats:
+            show_xp(stats)
+        else:
+            print("TBD")

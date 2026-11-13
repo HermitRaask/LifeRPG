@@ -69,7 +69,7 @@ def settle(state, effects, kind, period):
     missed = [
         key for key, streak in state["streaks"].items()
         if QUESTS[key][1] == kind and streak["duration"]
-        and state["completed"][key] < period.isoformat()
+        and state["completed"].get(key, "") < period.isoformat()
     ]
     # Draft D-06 supplies a stable provisional order for competing streaks.
     missed.sort(key=lambda key: (-state["streaks"][key]["duration"], key))
@@ -86,6 +86,8 @@ def settle(state, effects, kind, period):
             transition = "streak.reset"
 
         if transition == "streak.reset":
+            streak.pop("bonus_periods", None)
+            streak.pop("bonus_periods", None)
             streak.update(duration=0, successful=0, protected=0,
                           at_risk=False, last_chance_used=False)
         else:
@@ -118,6 +120,10 @@ def evaluate(state, today, completions):
                       last_chance_used=False, at_risk=False)
         )
         streak["duration"] += 1
+        if "bonus_periods" in streak:
+            streak["bonus_periods"] += 1
+        if "bonus_periods" in streak:
+            streak["bonus_periods"] += 1
         streak["successful"] += 1
         streak["best"] = max(streak["best"], streak["duration"])
         streak["at_risk"] = False

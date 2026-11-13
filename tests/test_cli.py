@@ -123,3 +123,44 @@ def test_writing_and_developer_settings_after_restart(tmp_path):
     assert "lazy: Ленивый (выключен)" in output
     assert "Медитация: Воля +50 XP" in output
     assert "Опыт: 50/1000 XP" in output
+
+
+def test_console_developer_achievement_and_report(tmp_path):
+    path = str(tmp_path / "events.jsonl")
+    output = run_cli(
+        "--state", path,
+        commands="12\n1\nwriting\n\n2\n3\nplayer\n42\n0\n11\n0\n",
+    )
+    assert "Записано 2/2; XP навыков: 100" in output
+    assert "Опыт: 100/1000 XP" in output
+    output = run_cli("--state", path, commands="3\n14\n\n\n0\n")
+    assert "Общий уровень: 42" in output
+    assert "Выполнений: 2" in output
+    assert "XP навыков: {'writing': 100}" in output
+
+
+def test_console_shows_and_pays_recorded_rust(tmp_path):
+    from datetime import datetime, timedelta
+    from uuid import uuid4
+
+    from liferpg.domain.activities import catalog
+    from liferpg.game import complete, developer_update, settle_rust
+
+    path = tmp_path / "events.jsonl"
+    today = datetime.now().astimezone()
+    developer_update(path, "level", "will", 25, developer_mode=True)
+    complete(
+        path, catalog()["meditation"], "2", str(uuid4()),
+        today - timedelta(days=10),
+    )
+    settle_rust(path, today, first_day=8, debt_cap=1000)
+    output = run_cli(
+        "--state", str(path), commands="3\n2\nmeditation\n\n14\n\n\n0\n"
+    )
+    assert "долг 100 XP" in output
+    assert "Погашено 50 XP" in output
+    restarted = run_cli(
+        "--state", str(path), commands="3\n14\n\n\n0\n"
+    )
+    assert "долг 50 XP" in restarted
+    assert "Списания XP: 50, погашение: 50 XP" in restarted

@@ -57,9 +57,9 @@ def test_replay_deduplicates_and_restores_from_recorded_results(tmp_path):
     third = complete(
         path, activity, "2", str(uuid4()), local + timedelta(minutes=1)
     )
-    assert second["payload"]["consequences"] == [
-        {"type": "stat.leveled_up", "stat": "will", "level": 2}
-    ]
+    assert {"type": "stat.leveled_up", "stat": "will", "level": 2} in (
+        second["payload"]["consequences"]
+    )
     assert first["occurred_at_utc"] == "2026-11-13T00:59:00Z"
     assert first["real_local_date"] == "2026-11-13"
     assert third["payload"]["occurrence_index_in_game_day"] == 1

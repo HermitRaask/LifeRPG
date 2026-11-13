@@ -58,6 +58,7 @@ def validate(event):
     elif kind not in (
         "activity.completed", "system.legacy_imported", "rules.updated",
         "correction.applied", "perk.updated", "periods.advanced",
+        "developer.updated", "rust.decayed",
     ):
         raise ValueError("неизвестный тип события")
     for key, row in payload["xp_by_stat"].items():

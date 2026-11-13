@@ -4,6 +4,9 @@ from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 
+from liferpg.domain.achievements import (
+    ACHIEVEMENTS, achievement_effect, evaluate_achievements, unlocked,
+)
 from liferpg.domain.activity_xp import (
     INTENSITY, RULES_VERSION, completion_xp, game_date, repetition_factor,
 )
@@ -12,7 +15,8 @@ from liferpg.domain.perks import (
     EFFECTS, active_perks, effects_for, lazy_replacement,
 )
 from liferpg.domain.progression import xp_required
-from liferpg.domain.quests import advance, evaluate, quest_state
+from liferpg.domain.quests import QUESTS, advance, evaluate, quest_state
+from liferpg.domain.rust import decay_row, rust_state
 from liferpg.domain.skills import WRITING, award_writing
 from liferpg.journal import append_event, journal_lock, read_events
 
@@ -31,6 +35,7 @@ def make_event(events, operation, kind, entity_id, local, payload, message):
         "seq": len(events) + 1, "event_type": kind,
         "actor": {
             "rules.updated": "system", "system.legacy_imported": "migration",
+            "developer.updated": "developer", "rust.decayed": "system",
         }.get(kind, "user"),
         "entity_type": "activity_completion" if kind == "activity.completed"
         else "profile",
@@ -107,8 +112,9 @@ def complete(path, activity, intensity, operation, local=None):
         key = (game_date(local).isoformat(), activity.key)
         number = counts.get(key, 0) + 1
         perks, victory = active_perks(events)
+        debts, _, _ = rust_state(events)
         payload = completion_payload(
-            activity, intensity, number, before, perks
+            activity, intensity, number, before, perks, debts
         )
         will = payload["xp_by_stat"].get("will")
         will_level = before.attribute("will").level
@@ -130,6 +136,7 @@ def complete(path, activity, intensity, operation, local=None):
         payload["quest_state"] = state
         if activity.key == WRITING:
             award_writing(events, payload)
+        evaluate_achievements(events, before, payload)
         credited = credits(payload)
         details = ", ".join(
             f"{ATTRIBUTE_NAMES[key]} +{value} XP"
@@ -143,13 +150,23 @@ def complete(path, activity, intensity, operation, local=None):
         return event
 
 
-def completion_payload(activity, intensity, number, before, perks=()):
+def completion_payload(activity, intensity, number, before, perks=(),
+                       debts=None):
     base = activity.rewards()
     effects = effects_for(activity.key, base, perks)
-    credited = completion_xp(base, intensity, number, effects)
+    calculated = completion_xp(base, intensity, number, effects)
+    debts = debts or {}
+    paid = {key: min(value, debts.get(key, 0))
+            for key, value in calculated.items()}
+    credited = {key: value - paid[key] for key, value in calculated.items()}
     after = deepcopy(before)
     after.apply(credited)
     rows = xp_rows(before, after, base, credited)
+    for key, row in rows.items():
+        row.update(calculated_xp=calculated[key], rust_paid=paid[key])
+        if paid[key]:
+            row["rust_debt_before"] = debts[key]
+            row["rust_debt_after"] = debts[key] - paid[key]
     return {
         "activity_id": activity.key,
         "activity_name_snapshot": activity.name,
@@ -360,9 +377,119 @@ def settle_periods(path, local=None):
         effects = advance(state, game_date(local))
         if state["day"] == old_day:
             return
+        payload = {"xp_by_stat": {}, "quest_state": state,
+                   "consequences": effects}
+        evaluate_achievements(events, project(events)[0], payload)
         event = make_event(
             events, str(uuid4()), "periods.advanced", "local-player", local,
-            {"xp_by_stat": {}, "quest_state": state, "consequences": effects},
+            payload,
             "Обработаны завершённые игровые периоды.",
+        )
+        append_event(path, event)
+
+
+def developer_update(path, action, key, value=None, *, developer_mode=False):
+    if not developer_mode:
+        raise ValueError("Команда доступна в режиме разработчика.")
+    if action == "streak":
+        if key not in QUESTS or type(value) is not int or value < 0:
+            raise ValueError("Укажи код серии и неотрицательную длину.")
+    elif action == "level":
+        if key not in (*ATTRIBUTE_NAMES, "player"):
+            raise ValueError("Неизвестная характеристика.")
+        if type(value) is not int or value < 1:
+            raise ValueError("Уровень должен быть положительным целым.")
+    elif action != "achievement" or key not in ACHIEVEMENTS:
+        raise ValueError("Неизвестное действие или достижение.")
+
+    with journal_lock(path):
+        events = read_events(path)
+        character, _ = project(events)
+        payload = {"xp_by_stat": {}, "consequences": [],
+                   "action": action, "value": value}
+        if action == "achievement":
+            if key in unlocked(events):
+                return False
+            payload["consequences"].append(achievement_effect(key))
+        elif action == "streak":
+            state = quest_state(events)
+            streak = state["streaks"].setdefault(
+                key, dict(duration=0, successful=0, protected=0, best=0,
+                          last_chance_used=False, at_risk=False)
+            )
+            payload["previous_length"] = streak["duration"]
+            streak["duration"] = value
+            streak["bonus_periods"] = value
+            streak["best"] = max(streak["best"], value)
+            payload["quest_state"] = state
+        elif key == "player":
+            payload["player_level"] = value
+        else:
+            after = deepcopy(character)
+            after.attribute(key).restore_progress(value, 0)
+            payload["xp_by_stat"] = xp_rows(
+                character, after, {key: 0}, {key: 0}
+            )
+            if key == "will":
+                perks, victory = active_perks(events)
+                payload["consequences"].extend(
+                    lazy_replacement(perks, victory, value)
+                )
+        event = make_event(
+            events, str(uuid4()), "developer.updated", key,
+            datetime.now().astimezone(), payload,
+            f"Режим разработчика: {action} {key}",
+        )
+        append_event(path, event)
+        return True
+
+
+def developer_batch(path, activity, intensity, amount, *,
+                    developer_mode=False, local=None):
+    if not developer_mode:
+        raise ValueError("Команда доступна в режиме разработчика.")
+    if type(amount) is not int or amount < 1:
+        raise ValueError("Количество должно быть положительным целым.")
+    completion_xp(activity.rewards(), intensity, 1)
+    moment = local if local is not None else datetime.now().astimezone()
+    done, total, skill_xp = 0, {}, 0
+    try:
+        for _ in range(amount):
+            event = complete(path, activity, intensity, str(uuid4()), moment)
+            done += 1
+            payload = event["payload"]
+            for key, xp in credits(payload).items():
+                total[key] = total.get(key, 0) + xp
+            skill_xp += sum(
+                effect["xp"] for effect in payload["consequences"]
+                if effect["type"] == "skill.xp_credited"
+            )
+    except (ValueError, OSError, KeyboardInterrupt) as error:
+        reason = str(error) or "прервано"
+        return done, total, skill_xp, reason
+    return done, total, skill_xp, None
+
+
+def settle_rust(path, local, *, first_day, debt_cap):
+    """Apply an explicit policy. The console leaves scheduling disabled."""
+    with journal_lock(path):
+        events = read_events(path)
+        character, _ = project(events)
+        debts, gains, previous = rust_state(events)
+        today = game_date(local)
+        rows = {}
+        for key, last_gain in gains.items():
+            row = decay_row(
+                character.attribute(key), debts.get(key, 0), last_gain,
+                previous.get(key), today, first_day, debt_cap,
+            )
+            if row is not None:
+                rows[key] = row
+        if not rows:
+            return
+        event = make_event(
+            events, str(uuid4()), "rust.decayed", "local-player", local,
+            {"xp_by_stat": rows, "consequences": []},
+            "Списан XP за бездействие.",
         )
         append_event(path, event)
