@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from activities import Activity, ActivityCompletion, ActivityLog
-from character import ATTRIBUTE_NAMES
+from liferpg.domain.activities import Activity, ActivityCompletion, ActivityLog
+from liferpg.domain.character import ATTRIBUTE_NAMES
 
 
 def load_log(path: Path, activities: dict[str, Activity]) -> ActivityLog:

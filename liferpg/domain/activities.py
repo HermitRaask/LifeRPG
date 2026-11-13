@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 
-from character import Character
+from liferpg.domain.character import Character
 
 
 class XPAction(ABC):

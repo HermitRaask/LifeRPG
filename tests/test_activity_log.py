@@ -1,9 +1,9 @@
 import pytest
 
-from activities import (
+from liferpg.domain.activities import (
     ActivityLog, ManualXPAward, apply_action, catalog, find_activities,
 )
-from character import Character
+from liferpg.domain.character import Character
 
 
 def test_catalog_search_filter_and_sort():

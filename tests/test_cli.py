@@ -39,8 +39,20 @@ def test_menu_and_restart(tmp_path):
     assert "Сила: уровень 1, 0/100 XP" in restored
     assert "Интеллект: уровень 1, 2/100 XP" in restored
     assert "#1 — Чтение (+4 XP)" in restored
+    assert "Интеллект +2 XP, Творчество +2 XP" in restored
 
 
 def test_pr01_demo():
     output = run_cli("--demo-pr01", commands="350\n")
     assert "Сила: уровень 3, 50/300 XP" in output
+
+
+def test_audit_shows_xp_by_attribute_after_restart(tmp_path):
+    path = str(tmp_path / "state.json")
+    run_cli("--state", path, commands="2\neagle\n5\n1\nreading\n6\n1\n0\n")
+    output = run_cli("--state", path, commands="8\n0\n")
+
+    assert "Выполнение: #1 — Стойка орла (+65 XP)" in output
+    assert "Воля +50 XP, Выносливость +15 XP" in output
+    assert "Интеллект +2 XP, Творчество +2 XP" in output
+    assert "Без начисления XP" in output

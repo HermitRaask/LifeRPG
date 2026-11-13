@@ -1,6 +1,6 @@
 """Character and attribute state."""
 
-from progression import award_xp, get_stat_progress, xp_required
+from liferpg.domain.progression import award_xp, get_stat_progress, xp_required
 
 ATTRIBUTE_NAMES = {
     "strength": "Сила",

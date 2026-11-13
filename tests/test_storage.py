@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from activities import ActivityLog, catalog
-from storage import load_log, save_log
+from liferpg.domain.activities import ActivityLog, catalog
+from liferpg.storage import load_log, save_log
 
 
 def test_json_round_trip_restores_links_and_xp_snapshots(tmp_path):
