@@ -5,7 +5,7 @@ def xp_required(level: int) -> int:
     """Return the XP needed to advance from the given level."""
     if level < 1:
         raise ValueError("Уровень должен быть не ниже 1.")
-    return 100 * level
+    return 100 + 25 * (level - 1)
 
 
 def award_xp(level: int, current_xp: int, amount: int) -> tuple[int, int]:

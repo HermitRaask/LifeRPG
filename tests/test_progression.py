@@ -3,7 +3,7 @@ import pytest
 from liferpg.domain.progression import award_xp, get_stat_progress, xp_required
 
 
-@pytest.mark.parametrize("level, required", [(1, 100), (2, 200), (3, 300)])
+@pytest.mark.parametrize("level, required", [(1, 100), (2, 125), (3, 150)])
 def test_xp_required(level, required):
     assert xp_required(level) == required
 
@@ -20,8 +20,8 @@ def test_xp_required_rejects_invalid_level():
         (1, 0, 99, (1, 99)),
         (1, 0, 100, (2, 0)),
         (1, 0, 125, (2, 25)),
-        (1, 0, 350, (3, 50)),
-        (2, 175, 40, (3, 15)),
+        (1, 0, 350, (3, 125)),
+        (2, 110, 40, (3, 25)),
     ],
 )
 def test_award_xp(level, current_xp, amount, expected):
@@ -35,4 +35,4 @@ def test_award_xp_rejects_invalid_input(current_xp, amount):
 
 
 def test_get_stat_progress():
-    assert get_stat_progress("Сила", 3, 50) == "Сила: уровень 3, 50/300 XP"
+    assert get_stat_progress("Сила", 3, 50) == "Сила: уровень 3, 50/150 XP"

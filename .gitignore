@@ -31,3 +31,5 @@ AGENTS.md
 
 # Local activity history
 /data/state.json
+*.jsonl.lock
+*.jsonl.bak

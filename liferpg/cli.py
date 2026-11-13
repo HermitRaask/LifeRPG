@@ -9,6 +9,9 @@ from liferpg.domain.activities import (
     find_activities,
 )
 from liferpg.domain.character import ATTRIBUTE_NAMES, Character
+from liferpg.console_game import run_journal_menu
+from liferpg.game import import_legacy
+from liferpg.journal import backup_journal
 from liferpg.storage import load_log, save_log
 
 DEFAULT_STATE = Path(__file__).resolve().parents[1] / "data" / "state.json"
@@ -133,6 +136,25 @@ def run_menu(path: Path) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="LifeRPG")
     parser.add_argument("--demo-pr01", action="store_true")
-    parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
+    parser.add_argument("--state", type=Path)
+    parser.add_argument("--backup", type=Path, metavar="DESTINATION")
     args = parser.parse_args()
-    return demo_pr01() if args.demo_pr01 else run_menu(args.state)
+    if args.demo_pr01:
+        return demo_pr01()
+    if args.state and args.state.suffix.casefold() != ".jsonl":
+        if args.backup:
+            parser.error("--backup требует путь к журналу JSONL")
+        return run_menu(args.state)
+    path = args.state or DEFAULT_STATE.with_name("events.jsonl")
+    activities = catalog()
+    try:
+        if args.backup:
+            backup_journal(path, args.backup)
+            print(f"Резервная копия: {args.backup}")
+            return 0
+        if args.state is None and DEFAULT_STATE.exists() and not path.exists():
+            import_legacy(path, load_log(DEFAULT_STATE, activities))
+        return run_journal_menu(path, activities, MENU, choose_activity)
+    except (OSError, ValueError) as error:
+        print(f"Ошибка журнала: {error}")
+        return 1

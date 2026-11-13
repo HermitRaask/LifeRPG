@@ -32,6 +32,10 @@ class Attribute:
     def required_xp(self) -> int:
         return xp_required(self._level)
 
+    def restore_progress(self, level: int, current_xp: int) -> None:
+        """Restore a recorded result without recalculating the award."""
+        self._level, self._current_xp = level, current_xp
+
     def award_xp(self, amount: int) -> None:
         self._level, self._current_xp = award_xp(
             self._level, self._current_xp, amount

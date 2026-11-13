@@ -24,7 +24,7 @@ def test_actions_use_same_interface_and_characters_are_independent():
     apply_action(character, ManualXPAward(350))
     apply_action(character, catalog()["training"])
     strength = character.attribute("strength")
-    assert str(strength) == "Сила: уровень 3, 100/300 XP"
+    assert str(strength) == "Сила: уровень 4, 25/175 XP"
     assert character.attribute("endurance").current_xp == 5
     assert Character().attribute("strength").level == 1
     with pytest.raises(AttributeError):
