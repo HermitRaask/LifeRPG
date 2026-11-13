@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environment
+.venv/
+venv/
+
+# Environment variables
+.env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+
+# Local database
+db.sqlite3
+
+# Logs
+*.log
+events.jsonl
+
+# Codex
+AGENTS.md
+.codex/
