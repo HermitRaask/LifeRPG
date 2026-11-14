@@ -1,0 +1,10 @@
+<div class="dashboard-grid"><div class="primary-column">
+<section class="panel quick-panel"><div class="section-heading"><h2>Следующий шаг</h2><span class="pill">{{ total_today }} действий сегодня</span></div><p class="muted">Что вы сделали для себя?</p>
+<form action="{% url 'preview' %}" method="post" class="activity-form">{% csrf_token %}{{ activity_form.as_p }}<button class="btn btn-primary" type="submit">Рассчитать награду ↗</button></form>
+<div class="quick-links"><a href="{% url 'page' 'activities' %}?activity=writing">✧ Работа над текстом</a><a href="{% url 'page' 'activities' %}?activity=walk">↟ Прогулка</a><a href="{% url 'page' 'activities' %}">Все активности →</a></div></section>
+<section class="panel"><div class="section-heading"><h2>Задания на сегодня</h2><a href="{% url 'page' 'quests' %}">{{ completed_today }} / {{ daily|length }} →</a></div>
+{% for quest in daily %}<div class="quest-row"><span class="quest-check {% if quest.done %}done{% endif %}" aria-hidden="true">{% if quest.done %}✓{% else %}○{% endif %}</span><div><strong>{{ quest.name }}</strong><small>{% if quest.done %}Выполнено{% else %}Ожидает выполнения{% endif %}</small></div><span class="streak-label">{{ quest.length }} дн.</span></div>{% endfor %}</section></div>
+<div class="secondary-column"><section class="panel"><div class="section-heading"><h2>Перки</h2><a href="{% url 'page' 'perks' %}">Все →</a></div>{% include "webgame/_perks.html" %}</section>
+<section class="panel"><div class="section-heading"><h2>Модификаторы</h2><span class="pill">Эффекты</span></div>
+<div class="modifier"><strong>Заржавел</strong><p>Новый XP сначала погашает долг своей характеристики.</p>{% for stat in stats %}{% if stat.debt %}<span class="debt">{{ stat.name }}: {{ stat.debt }} XP</span>{% endif %}{% endfor %}<small>Автоматическое списание выключено: правило уточняется.</small></div>
+<div class="modifier"><strong>В ударе</strong>{% for quest in quests %}{% if quest.length %}<p>{{ quest.name }} · +{{ quest.bonus }}%</p>{% endif %}{% endfor %}<small>Бонус пока не применяется к XP. Область действия и сложение уточняются.</small></div></section></div></div>

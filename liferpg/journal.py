@@ -3,11 +3,25 @@
 import json
 import os
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import date, datetime
 from shutil import copyfileobj
 from uuid import UUID
 
 from liferpg.domain.character import ATTRIBUTE_NAMES
+from liferpg.domain.configuration import validate_configuration
+
+
+_event_context = ContextVar("event_context", default=None)
+
+
+@contextmanager
+def event_context(request):
+    token = _event_context.set(request)
+    try:
+        yield
+    finally:
+        _event_context.reset(token)
 
 
 @contextmanager
@@ -58,9 +72,36 @@ def validate(event):
     elif kind not in (
         "activity.completed", "system.legacy_imported", "rules.updated",
         "correction.applied", "perk.updated", "periods.advanced",
-        "developer.updated", "rust.decayed",
+        "developer.updated", "rust.decayed", "settings.updated",
+        "report.generated",
     ):
         raise ValueError("неизвестный тип события")
+    if kind == "settings.updated":
+        validate_configuration(payload["before"])
+        validate_configuration(payload["after"])
+        if datetime.fromisoformat(
+            payload["effective_at_utc"]
+        ).utcoffset() is None:
+            raise ValueError("нет часового пояса вступления правил в силу")
+    if kind == "rules.updated" and "configuration_snapshot" in payload:
+        validate_configuration(payload["configuration_snapshot"])
+    if kind == "report.generated":
+        report = payload["report"]
+        start, end = date.fromisoformat(report["start"]), date.fromisoformat(
+            report["end"]
+        )
+        if (start > end or report["kind"] not in ("weekly", "monthly")
+                or report["period"] != f"{report['kind']}:{report['start']}"):
+            raise ValueError("некорректный период отчёта")
+        for field in ("xp", "skills", "directions"):
+            if not isinstance(report["data"][field], dict):
+                raise ValueError("некорректные показатели отчёта")
+        for field in ("history", "levels", "quests", "top_days"):
+            if not isinstance(report["data"][field], (list, tuple)):
+                raise ValueError("некорректная история отчёта")
+        for field in ("decay", "paid"):
+            if type(report["data"][field]) is not int:
+                raise ValueError("некорректный XP отчёта")
     for key, row in payload["xp_by_stat"].items():
         if key not in ATTRIBUTE_NAMES:
             raise ValueError("неизвестная характеристика")
@@ -123,6 +164,13 @@ def read_events(path):
 
 def append_event(path, event):
     """Append one fully prepared operation while holding journal_lock."""
+    request = _event_context.get()
+    if request is not None:
+        event["payload"]["web_request"] = request
+        if request["command"] in (
+            "perk", "level", "streak", "achievement", "batch", "rules"
+        ) and event["event_type"] != "rules.updated":
+            event["actor"] = "developer"
     validate(event)
     data = (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
     with path.open("ab") as target:

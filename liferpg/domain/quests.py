@@ -50,9 +50,10 @@ def advance(state, today):
             refill(state, effects, "daily", 5, cursor)
         if first or cursor.day == 1:
             refill(state, effects, "weekly", 3, cursor)
-        settle(state, effects, "daily", cursor - timedelta(days=1))
-        if cursor.weekday() == 0:
-            settle(state, effects, "weekly", cursor - timedelta(days=7))
+        if not first:
+            settle(state, effects, "daily", cursor - timedelta(days=1))
+            if cursor.weekday() == 0:
+                settle(state, effects, "weekly", cursor - timedelta(days=7))
         state["day"] = cursor.isoformat()
         cursor += timedelta(days=1)
     return effects
@@ -87,7 +88,6 @@ def settle(state, effects, kind, period):
 
         if transition == "streak.reset":
             streak.pop("bonus_periods", None)
-            streak.pop("bonus_periods", None)
             streak.update(duration=0, successful=0, protected=0,
                           at_risk=False, last_chance_used=False)
         else:
@@ -120,8 +120,6 @@ def evaluate(state, today, completions):
                       last_chance_used=False, at_risk=False)
         )
         streak["duration"] += 1
-        if "bonus_periods" in streak:
-            streak["bonus_periods"] += 1
         if "bonus_periods" in streak:
             streak["bonus_periods"] += 1
         streak["successful"] += 1

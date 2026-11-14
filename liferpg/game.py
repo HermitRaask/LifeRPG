@@ -8,9 +8,10 @@ from liferpg.domain.achievements import (
     ACHIEVEMENTS, achievement_effect, evaluate_achievements, unlocked,
 )
 from liferpg.domain.activity_xp import (
-    INTENSITY, RULES_VERSION, completion_xp, game_date, repetition_factor,
+    INTENSITY, completion_xp, game_date, repetition_factor,
 )
 from liferpg.domain.character import ATTRIBUTE_NAMES, Character
+from liferpg.domain.configuration import configuration
 from liferpg.domain.perks import (
     EFFECTS, active_perks, effects_for, lazy_replacement,
 )
@@ -26,11 +27,13 @@ def utc_string(moment):
 
 
 def make_event(events, operation, kind, entity_id, local, payload, message):
-    day = game_date(local)
+    config = configuration(events)
+    day = game_date(local, config["boundary_minutes"])
     return {
         "schema_version": 1,
-        "rules_version": 2 if kind == "rules.updated" else RULES_VERSION,
-        "time_rules_version": 1, "boundary_minutes": 240,
+        "rules_version": config["version"],
+        "time_rules_version": config["version"],
+        "boundary_minutes": config["boundary_minutes"],
         "event_id": operation, "transaction_id": operation,
         "seq": len(events) + 1, "event_type": kind,
         "actor": {
@@ -109,12 +112,14 @@ def complete(path, activity, intensity, operation, local=None):
                     raise ValueError("Идентификатор операции уже использован.")
                 return event
         before, counts = project(events)
-        key = (game_date(local).isoformat(), activity.key)
+        config = configuration(events)
+        key = (game_date(local, config["boundary_minutes"]).isoformat(),
+               activity.key)
         number = counts.get(key, 0) + 1
         perks, victory = active_perks(events)
         debts, _, _ = rust_state(events)
         payload = completion_payload(
-            activity, intensity, number, before, perks, debts
+            activity, intensity, number, before, perks, debts, config
         )
         will = payload["xp_by_stat"].get("will")
         will_level = before.attribute("will").level
@@ -123,7 +128,7 @@ def complete(path, activity, intensity, operation, local=None):
         payload["consequences"].extend(
             lazy_replacement(perks, victory, will_level)
         )
-        day = game_date(local)
+        day = game_date(local, config["boundary_minutes"])
         state = quest_state(events)
         payload["consequences"].extend(advance(state, day))
         completions = [
@@ -151,10 +156,10 @@ def complete(path, activity, intensity, operation, local=None):
 
 
 def completion_payload(activity, intensity, number, before, perks=(),
-                       debts=None):
+                       debts=None, config=None):
     base = activity.rewards()
     effects = effects_for(activity.key, base, perks)
-    calculated = completion_xp(base, intensity, number, effects)
+    calculated = completion_xp(base, intensity, number, effects, config)
     debts = debts or {}
     paid = {key: min(value, debts.get(key, 0))
             for key, value in calculated.items()}
@@ -172,9 +177,12 @@ def completion_payload(activity, intensity, number, before, perks=(),
         "activity_name_snapshot": activity.name,
         "activity_version": 1, "intensity": intensity,
         "xp_rounding": "floor", "effect_factors": effects,
-        "intensity_factor": str(INTENSITY[intensity]),
+        "intensity_factor": (config["intensity"][intensity] if config
+                             else str(INTENSITY[intensity])),
         "occurrence_index_in_game_day": number,
-        "diminishing_factor": str(repetition_factor(number)),
+        "diminishing_factor": str(repetition_factor(
+            number, config["repetition"]
+        ) if config else repetition_factor(number)),
         "xp_by_stat": rows, "consequences": level_changes(rows),
     }
 
@@ -263,7 +271,7 @@ def level_changes(rows):
     ]
 
 
-def state_change(events, kind, entity_id, payload, message):
+def state_change(events, kind, entity_id, payload, message, local=None):
     before, _ = project(events)
     after = deepcopy(before)
     if kind == "correction.applied":
@@ -291,7 +299,8 @@ def state_change(events, kind, entity_id, payload, message):
     ))
     payload = {**payload, "xp_by_stat": rows, "consequences": effects}
     return make_event(
-        events, str(uuid4()), kind, entity_id, datetime.now().astimezone(),
+        events, str(uuid4()), kind, entity_id,
+        local or datetime.now().astimezone(),
         payload, message,
     )
 
@@ -304,18 +313,38 @@ def ensure_progression_rules(path):
         event = state_change(
             events, "rules.updated", "progression",
             {"previous_rules_version": 1, "base_xp": 100,
-             "previous_increment_xp": 100, "increment_xp": 25},
-            "Изменены пороги уровней: 100 XP, затем +25 XP за уровень.",
+             "previous_increment_xp": 100, "increment_xp": 25,
+             "level_25_threshold": 1000, "level_25_increment": 100,
+             "configuration_snapshot": configuration(events)},
+            "Изменены пороги уровней: 100 XP, +25 до уровня 25; "
+            "с уровня 25 — 1000 XP, далее +100. Прогресс сохранён.",
         )
         append_event(path, event)
 
 
-def revise_completion(path, target, activity, intensity):
+def revise_completion(path, target, activity, intensity, *,
+                      operation=None, local=None, max_age=None):
     with journal_lock(path):
         events = read_events(path)
+        if operation:
+            existing = next((e for e in events
+                             if e["transaction_id"] == operation), None)
+            if existing:
+                if (existing["event_type"] != "correction.applied"
+                        or existing["payload"]["target_seq"] != target):
+                    raise ValueError("Идентификатор операции уже использован.")
+                return existing
+        local = local or datetime.now().astimezone()
         entries = effective_completions(events)
         if target not in entries:
             raise ValueError("Выполнение с таким номером не найдено.")
+        original = events[target - 1]
+        if max_age is not None:
+            age = (local - datetime.fromisoformat(
+                original["recorded_at_utc"]
+            )).total_seconds()
+            if not 0 <= age < max_age:
+                raise ValueError("Исправление доступно только в первый час.")
         day, previous = entries[target]
         if previous is None and activity is None:
             raise ValueError("Выполнение уже отменено.")
@@ -328,20 +357,24 @@ def revise_completion(path, target, activity, intensity):
             )
             perks, _ = active_perks(events)
             replacement = completion_payload(
-                activity, intensity, number, Character(), perks
+                activity, intensity, number, Character(), perks,
+                config=configuration(events)
             )
         action = "Исправление" if replacement is not None else "Отмена"
         event = state_change(
             events, "correction.applied", events[target - 1]["event_id"],
             {"target_seq": target, "replacement": replacement,
              "previous": previous},
-            f"{action} выполнения #{target}",
+            f"{action} выполнения #{target}", local=local,
         )
+        if operation:
+            event["event_id"] = event["transaction_id"] = operation
         append_event(path, event)
         return event
 
 
-def set_perk(path, perk, enabled, *, developer_mode=False):
+def set_perk(path, perk, enabled, *, developer_mode=False, operation=None,
+             local=None):
     if not developer_mode:
         raise ValueError("Переключение доступно в режиме разработчика.")
     if perk not in EFFECTS and perk != "sport":
@@ -358,8 +391,8 @@ def set_perk(path, perk, enabled, *, developer_mode=False):
             {"type": kind, "perk": perk},
         ]}
         event = make_event(
-            events, str(uuid4()), "perk.updated", perk,
-            datetime.now().astimezone(), payload,
+            events, operation or str(uuid4()), "perk.updated", perk,
+            local or datetime.now().astimezone(), payload,
             f"{kind}: {perk}",
         )
         append_event(path, event)
@@ -374,7 +407,9 @@ def settle_periods(path, local=None):
         old_day = state["day"]
         if old_day is None:
             return
-        effects = advance(state, game_date(local))
+        effects = advance(state, game_date(
+            local, configuration(events)["boundary_minutes"]
+        ))
         if state["day"] == old_day:
             return
         payload = {"xp_by_stat": {}, "quest_state": state,
@@ -388,7 +423,8 @@ def settle_periods(path, local=None):
         append_event(path, event)
 
 
-def developer_update(path, action, key, value=None, *, developer_mode=False):
+def developer_update(path, action, key, value=None, *,
+                     developer_mode=False, operation=None, local=None):
     if not developer_mode:
         raise ValueError("Команда доступна в режиме разработчика.")
     if action == "streak":
@@ -436,8 +472,8 @@ def developer_update(path, action, key, value=None, *, developer_mode=False):
                     lazy_replacement(perks, victory, value)
                 )
         event = make_event(
-            events, str(uuid4()), "developer.updated", key,
-            datetime.now().astimezone(), payload,
+            events, operation or str(uuid4()), "developer.updated", key,
+            local or datetime.now().astimezone(), payload,
             f"Режим разработчика: {action} {key}",
         )
         append_event(path, event)

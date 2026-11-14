@@ -1,0 +1,21 @@
+{% load static %}
+<!doctype html><html lang="ru" data-bs-theme="dark">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title|default:"LifeRPG" }} · LifeRPG</title>
+<link rel="stylesheet" href="{% static 'webgame/bootstrap.min.css' %}">
+<link rel="stylesheet" href="{% static 'webgame/app.css' %}">
+<script src="{% static 'webgame/app.js' %}" defer></script></head>
+<body><a class="skip-link" href="#main">Перейти к содержимому</a>
+<aside class="sidebar" id="sidebar">
+<a class="brand" href="{% url 'home' %}"><span class="brand-mark">L</span>Life<span>RPG</span><small>ЛИЧНОЕ РАЗВИТИЕ</small></a>
+<div class="nav-label">ВАШЕ ПУТЕШЕСТВИЕ</div>
+<nav aria-label="Основная навигация">{% for key, label in navigation %}
+<a class="nav-item {% if section == key %}selected{% endif %}" href="{% url 'page' key %}" {% if section == key %}aria-current="page"{% endif %}><span class="nav-dot" aria-hidden="true"></span>{{ label }}</a>
+{% empty %}<a class="nav-item" href="{% url 'home' %}">Обзор</a>{% endfor %}</nav>
+<div class="sidebar-footer"><span class="online-dot"></span> Локальное сохранение<small>Ваш прогресс остаётся с вами.</small></div></aside>
+<div class="app-shell"><header class="topbar">
+<button class="menu-button" id="menu-toggle" type="button" aria-controls="sidebar" aria-expanded="false" aria-label="Открыть навигацию">☰</button>
+<span class="breadcrumb-label">Ваш персонаж <span>/</span> {{ title|default:"LifeRPG" }}</span>
+<span class="topbar-right">{% if developer %}<a class="dev-badge" href="{% url 'page' 'developer' %}">Режим разработчика</a>{% endif %}<span class="avatar" aria-hidden="true">Я</span></span></header>
+<main id="main" tabindex="-1">{% for message in messages %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}{% block content %}{% endblock %}
+<footer class="page-footer">LIFERPG <span>Становитесь сильнее в своём ритме.</span></footer></main></div></body></html>
