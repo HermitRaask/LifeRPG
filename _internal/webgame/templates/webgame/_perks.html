@@ -1,0 +1,2 @@
+<div class="perk-list">{% for perk in perks %}
+<article class="perk-row"><span class="perk-icon {% if not perk.active %}inactive{% endif %}" aria-hidden="true">✧</span><div><div class="perk-title">{{ perk.name }} <span class="status {% if perk.active %}on{% endif %}">{% if perk.active %}Включён{% else %}Выключен{% endif %}</span></div><details><summary>Эффект</summary><p>{{ perk.description }}</p></details></div></article>{% endfor %}</div>

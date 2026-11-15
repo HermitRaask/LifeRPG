@@ -33,3 +33,9 @@ AGENTS.md
 /data/state.json
 *.jsonl.lock
 *.jsonl.bak
+
+# PyInstaller work files
+/build/
+
+# Local web lock
+/data/web/web-operations.lock

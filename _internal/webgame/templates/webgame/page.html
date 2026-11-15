@@ -1,0 +1,15 @@
+{% extends "webgame/base.html" %}{% block content %}
+<div class="page-heading"><div><div class="eyebrow green">ВАШ ПУТЬ, ВАШИ ПРАВИЛА</div><h1>{{ title }}</h1><p>{{ subtitle }}</p></div><div class="day-pill"><span class="online-dot"></span> Игровой день · {{ game_date|date:"d.m.Y" }}</div></div>
+{% if result_event %}<section class="panel result-panel" role="status"><div class="section-heading"><h2>Действие сохранено</h2><span class="status on">Готово</span></div><p>{{ result_event.message_ru }}</p>{% include "webgame/_rewards.html" with rows=result_rows %}{% for text in result_messages %}<div class="result-effect">✧ {{ text }}</div>{% endfor %}</section>{% endif %}
+{% if section == "overview" or section == "stats" %}<div class="section-heading"><h2>Характеристики</h2><span class="muted">{% if state.player_level %}Общий уровень {{ state.player_level }} · задан вручную{% else %}Общий уровень · правило уточняется{% endif %}</span></div>{% include "webgame/_stats.html" %}{% endif %}
+{% if section == "overview" %}{% include "webgame/overview.html" %}
+{% elif section == "activities" %}{% include "webgame/activities.html" %}
+{% elif section == "skills" %}{% include "webgame/skills.html" %}
+{% elif section == "quests" %}{% include "webgame/quests.html" %}
+{% elif section == "perks" %}<section class="panel reading-width"><p class="muted">Настройка перков доступна в режиме разработчика.</p>{% include "webgame/_perks.html" %}</section>
+{% elif section == "achievements" %}{% include "webgame/achievements.html" %}
+{% elif section == "history" %}{% include "webgame/history.html" %}
+{% elif section == "reports" %}{% include "webgame/reports.html" %}
+{% elif section == "settings" %}{% include "webgame/settings.html" %}
+{% elif section == "developer" %}{% include "webgame/developer.html" %}{% endif %}
+{% endblock %}
