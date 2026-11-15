@@ -21,10 +21,26 @@ venv/
 # Local database
 db.sqlite3
 
-# Logs
+# Local logs
 *.log
 events.jsonl
 
 # Codex
 AGENTS.md
 .codex/
+
+# Local saves, test journals and backups
+/data/
+*.jsonl.lock
+*.jsonl.bak
+
+# Local databases and lock files
+*.sqlite3
+*.sqlite3-*
+*.lock
+
+# Windows desktop build
+/dist/
+/build/
+/LifeRPG.exe
+/_internal/

@@ -1,0 +1,5 @@
+<div class="stats-grid">{% for stat in stats %}
+<article class="stat-card stat-{{ stat.key }}"><div class="stat-top"><span class="stat-icon" aria-hidden="true">{{ stat.symbol }}</span><span class="eyebrow">{{ stat.name }}</span></div>
+<div class="level-number">{{ stat.level }}<span>уровень</span></div>
+<div class="progress" role="progressbar" aria-label="Опыт: {{ stat.name }}" aria-valuenow="{{ stat.percent }}" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width:{{ stat.percent }}%"></div></div>
+<div class="xp-caption"><strong>{{ stat.xp }}</strong> / {{ stat.required }} XP</div>{% if stat.debt %}<div class="debt">Заржавел · долг {{ stat.debt }} XP</div>{% endif %}</article>{% endfor %}</div>
