@@ -3,7 +3,7 @@
 from datetime import timedelta
 from fractions import Fraction
 
-RULES_VERSION = 5
+RULES_VERSION = 7
 INTENSITY = {"1": Fraction(1, 2), "2": Fraction(1), "3": Fraction(3, 2)}
 REPETITION = tuple(Fraction(n, 100) for n in (100, 100, 60, 30, 15))
 

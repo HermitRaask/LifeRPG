@@ -1,0 +1,18 @@
+{% extends "webgame/base.html" %}{% block content %}
+<h1>{{ title }}</h1><p><a href="{% url 'page' 'settings' %}">← Настройки</a></p>
+{% if archived %}
+<p>Показаны снимки на момент архивирования. Отметьте элементы, которые нужно вернуть. Для задания отметьте и его архивную активность; ранее архивированные элементы показаны отдельными группами.</p>
+<form method="post" action="{% url 'catalog-action' 'restore' %}">{% csrf_token %}<input type="hidden" name="operation" value="{{ operation }}"><input type="hidden" name="confirmed" value="yes">
+{% regroup rows by group as groups %}{% for group in groups %}<fieldset class="panel"><legend>Совместно архивировано · {{ group.list|length }}</legend>
+{% for row in group.list %}<article class="panel"><label><input type="checkbox" name="targets" value="{{ row.token }}"> {{ row.label }} · {{ row.snapshot.name }}</label>
+<details><summary>Снимок параметров и прогресса</summary><pre>{{ row.snapshot }}</pre><pre>{{ row.progress }}</pre></details>
+{% if row.kind == "quest" %}<p>После восстановления: новая серия с нуля. Учитываются только последующие подтверждения; прежний рекорд сохраняется.</p>{% endif %}</article>{% endfor %}</fieldset>{% empty %}<p>Архив пуст.</p>{% endfor %}
+{% if rows %}<button class="btn btn-primary">Разархивировать выбранное</button>{% endif %}</form>
+{% elif selected %}
+<section class="panel"><h2>Архивировать «{{ selected.name }}»?</h2><p>Элемент исчезнет из каталога, выбора и закреплений. Новые действия не будут его использовать. Заработанные уровни, XP, достижения и история сохранятся.</p>
+{% if selected.tasks %}<h3>Связанные задания — будут архивированы вместе</h3><ul>{% for name in selected.tasks %}<li>{{ name }}</li>{% endfor %}</ul>{% endif %}
+{% if selected.skills %}<h3>Начисление XP будет приостановлено для навыков</h3><ul>{% for name in selected.skills %}<li>{{ name }}</li>{% endfor %}</ul>{% endif %}
+{% if selected.achievements %}<h3>Связанные достижения</h3><ul>{% for name in selected.achievements %}<li>{{ name }}</li>{% endfor %}</ul><p>Закрытые достижения останутся видимыми с недоступным условием.</p>{% endif %}
+<form method="post" action="{% url 'catalog-action' 'archive' %}">{% csrf_token %}<input type="hidden" name="operation" value="{{ operation }}"><input type="hidden" name="confirmed" value="yes"><input type="hidden" name="kind" value="{{ selected.kind }}"><input type="hidden" name="key" value="{{ selected.key }}">
+<a class="btn btn-outline-secondary" href="{% url 'catalog' %}">Отмена</a> <button class="btn btn-primary">{% if selected.kind == "activity" %}Архивировать вместе с зависимыми заданиями{% else %}Архивировать{% endif %}</button></form></section>
+{% else %}<div class="content-grid">{% for row in rows %}<article class="panel"><p class="muted">{{ row.label }}</p><h2>{{ row.name }}</h2><a class="btn btn-outline-secondary" href="{% url 'catalog' %}?kind={{ row.kind }}&amp;key={{ row.key|urlencode }}">Архивировать</a></article>{% empty %}<p>Каталог пуст. Создайте элементы в настройках.</p>{% endfor %}</div>{% endif %}{% endblock %}

@@ -1,0 +1,11 @@
+<article class="activity-tile" data-search="{{ activity.name|lower }}" data-category="{{ activity.category }}">
+<h3>{{ activity.name }}</h3><p class="muted">{{ activity.category }}</p>
+{% if activity.locked %}<p class="muted">{{ activity.requirement }}</p>
+<span class="status">Недоступно</span>
+{% else %}<a class="btn btn-primary" href="{% url 'page' 'activities' %}?activity={{ activity.key }}#activity-calculator">Рассчитать</a>{% endif %}
+<form action="{% url 'action' 'pin' %}" method="post">{% csrf_token %}
+<input type="hidden" name="operation" value="{{ activity.pin_operation }}">
+<input type="hidden" name="activity" value="{{ activity.key }}">
+<input type="hidden" name="enabled" value="{% if activity.pinned %}{% else %}1{% endif %}">
+<button class="btn btn-outline-secondary" aria-label="{% if activity.pinned %}Открепить{% else %}Закрепить{% endif %} {{ activity.name }}">{% if activity.pinned %}Открепить{% else %}Закрепить{% endif %}</button>
+</form></article>

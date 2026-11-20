@@ -7,3 +7,54 @@
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
 
 :root{--bs-link-color-rgb:178,229,173;--bs-link-hover-color-rgb:213,247,210}
+
+.tile-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,230px),1fr));gap:16px;margin:16px 0 28px}.activity-tile{border:1px solid var(--line);border-radius:10px;padding:18px;min-width:0;overflow-wrap:anywhere}.activity-tile form{margin-top:10px}.activity-tile h3{min-height:3em}.category-filters{display:flex;flex-wrap:wrap;gap:12px;margin:16px 0}.category-filters legend{font-size:14px}.category-filters label{padding:8px;border:1px solid var(--line);border-radius:6px}.catalog-group{margin-top:24px}[hidden]{display:none!important}#activity-calculator .activity-form{max-width:620px}
+
+.quest-pins fieldset > div { display: grid; gap: .5rem; }
+.quest-pins input[type="checkbox"] { width: 1rem; height: 1rem; margin-right: .35rem; }
+.quest-pins label { cursor: pointer; }
+#skill-link-list li {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: .75rem; padding-block: .4rem; border-bottom: 1px solid var(--line);
+}
+
+.dashboard-grid{align-items:start}.dashboard-grid>.panel,.stats-grid>.stat-card{height:auto;align-self:start}
+.dashboard-grid.single-column{grid-template-columns:1fr}
+.quest-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;align-items:start}
+.root-skills .content-grid{margin-bottom:0}
+.notification-bell{position:relative}.notification-bell summary{list-style:none;cursor:pointer;padding:8px}
+.notification-menu{position:absolute;right:0;top:40px;z-index:35;width:min(340px,85vw);max-height:65vh;overflow:auto;background:var(--panel);padding:18px;border:1px solid var(--line);border-radius:10px}
+.notification-menu p{border-bottom:1px solid var(--line);padding-bottom:10px}
+.notification-menu small{display:block;font-size:10px}
+#toast-stack{position:fixed;top:85px;right:20px;width:min(360px,90vw);z-index:50;display:flex;flex-direction:column;gap:10px}
+.event-toast{text-align:left;background:var(--panel);border:1px solid var(--accent);border-radius:9px;color:var(--text);padding:16px;cursor:pointer;opacity:1;transition:opacity .25s,transform .25s}
+.event-toast.leaving{opacity:0;transform:translateX(20px)}
+@media(max-width:800px){.quest-columns{grid-template-columns:1fr;gap:0}}
+@media(prefers-reduced-motion:reduce){.event-toast{transition:none}}
+
+.settings-action-panel{display:grid;grid-template-areas:"stack";position:relative;min-height:320px}
+.settings-action-panel>h2{grid-area:stack;align-self:start}
+.display-settings-actions{grid-area:stack;align-self:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;margin:0;min-height:0}
+.display-settings-actions>.btn{width:min(100%,320px)}
+
+.element-toggle{display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--line)}
+.element-toggle label{cursor:pointer;flex:1;margin:0}.element-toggle input{flex-shrink:0;width:18px;height:18px}
+.root-skills .stat-card{min-width:0;overflow-wrap:anywhere}.root-skills .stat-top h3{margin:0;font-size:13px}
+
+.root-skills .status{white-space:normal}
+
+.tutorial-mode #main { padding-bottom: 310px; }
+.tutorial-highlight { outline: 3px solid #60d394; outline-offset: 5px; border-radius: 12px; }
+.tutorial-guide { position: fixed; bottom: 16px; right: 20px; width: min(510px, calc(100vw - 32px)); z-index: 1200; box-shadow: 0 10px 50px #0009; max-height: 48vh; overflow: auto; }
+.tutorial-guide form { display: flex; flex-wrap: wrap; gap: 8px; }
+.tutorial-mode .tutorial-highlight { scroll-margin-bottom: 310px; scroll-margin-top: 90px; }
+@media (max-width: 600px) { .tutorial-guide { right: 16px; bottom: 8px; padding: 16px; } .tutorial-guide h2 { font-size: 19px; } }
+
+.tutorial-guide h2:focus{outline:none;box-shadow:none}
+#developer-tools{display:flow-root}
+
+.tutorial-content{border:0;padding:0;margin:0;min-width:0}
+.tutorial-mode #main a.btn{pointer-events:none;opacity:.65}
+
+.bank-row{margin-bottom:24px}
+.bank-row>.panel{margin-bottom:0}

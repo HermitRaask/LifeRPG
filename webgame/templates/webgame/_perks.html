@@ -1,2 +1,14 @@
 <div class="perk-list">{% for perk in perks %}
-<article class="perk-row"><span class="perk-icon {% if not perk.active %}inactive{% endif %}" aria-hidden="true">✧</span><div><div class="perk-title">{{ perk.name }} <span class="status {% if perk.active %}on{% endif %}">{% if perk.active %}Включён{% else %}Выключен{% endif %}</span></div><details><summary>Эффект</summary><p>{{ perk.description }}</p></details></div></article>{% endfor %}</div>
+<article class="perk-row"><span class="perk-icon {% if not perk.active %}inactive{% endif %}" aria-hidden="true">✧</span><div><div class="perk-title">{{ perk.name }} <span class="status {% if perk.active %}on{% endif %}">{% if perk.active %}Включён{% else %}Выключен{% endif %}</span></div>{% if section == "stats" %}<p class="muted">{{ perk.description }}</p>{% else %}<details><summary>Эффект</summary><p>{{ perk.description }}</p></details>{% endif %}
+{% if show_toggles and perk.key != "victory" %}
+<form method="post" action="{% url 'action' 'perk' %}">
+{% csrf_token %}
+<input type="hidden" name="operation" value="{{ perk.operation }}">
+<input type="hidden" name="perk" value="{{ perk.key }}">
+{% if not perk.active %}<input type="hidden" name="enabled" value="1">{% endif %}
+<button class="btn btn-outline-secondary" aria-label="{% if perk.active %}Выключить{% else %}Включить{% endif %} {{ perk.name }}">{% if perk.active %}Выключить{% else %}Включить{% endif %}</button>
+</form>{% endif %}</div></article>{% endfor %}</div>
+{% if developer and not perk_catalog %}
+<details class="panel"><summary>Каталог перков разработчика</summary>
+{% include "webgame/_perks.html" with perks=all_perks perk_catalog=True show_toggles=developer %}
+</details>{% endif %}

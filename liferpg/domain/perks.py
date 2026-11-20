@@ -2,8 +2,11 @@
 
 from fractions import Fraction
 
+from liferpg.domain.catalog_state import empty_profile
+
 PERKS = {
     "lazy": "Ленивый",
+    "llm": "Оптимизация через LLM",
     "creative": "Творческий",
     "books": "Книги — мой мир",
     "sleep": "Свергнутый режим",
@@ -12,11 +15,11 @@ PERKS = {
     "victory": "Победа над собой",
 }
 EFFECTS = {
-    "lazy": (({"will"}, None, "1.5"),
+    "llm": (({"intelligence"}, {"project"}, "0.75"),),
+    "lazy": (({"will"}, None, "1.25"),
              ({"strength", "agility", "endurance", "intelligence",
                "creativity"}, None, "0.75")),
-    "creative": (({"creativity"}, None, "1.15"),
-                 ({"will"}, {"writing"}, "0.5")),
+    "creative": (({"will"}, {"writing"}, "0.5"),),
     "books": (({"intelligence"}, {"reading"}, "2"),),
     "sleep": (({"will"}, {"bedtime", "wake", "sleep"}, "1.5"),),
     "chronic": (({"strength", "agility", "endurance"}, None, "0.7"),),
@@ -24,7 +27,7 @@ EFFECTS = {
 
 
 def active_perks(events):
-    active = set(PERKS) - {"victory"}
+    active = set() if empty_profile(events) else set(PERKS) - {"victory"}
     victory = False
     for event in events:
         for effect in event["payload"].get("consequences", ()):
@@ -63,6 +66,9 @@ def lazy_replacement(active, victory, will_level):
 
 
 def describe_perk(key, activities):
+    if key == "llm":
+        return ("На 25% меньше прироста Интеллекта от активности "
+                "“Работа над проектом”")
     if key == "victory":
         return "Чувство глубокого удовлетворения. XP без изменений."
     if key not in EFFECTS:
@@ -77,7 +83,8 @@ def describe_perk(key, activities):
         scope = "любая активность"
         if applies_to is not None:
             scope = ", ".join(
-                activities[key].name for key in sorted(applies_to)
+                activities[key].name if key in activities else key
+                for key in sorted(applies_to)
             )
         parts.append(f"{scope}: {names} ×{factor}")
     if key == "lazy":

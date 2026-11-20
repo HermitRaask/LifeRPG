@@ -1,0 +1,6 @@
+<section class="panel" id="modifiers"><div class="section-heading"><h2>Модификаторы</h2></div>
+{% for modifier in modifiers %}<div class="modifier"><strong>{{ modifier.name }}</strong>
+<p>{{ modifier.description }}</p>
+{% if modifier.key == "rust" %}{% for stat in stats %}{% if stat.debt %}<span class="debt">{{ stat.name }}: {{ stat.debt }} XP</span>{% endif %}{% endfor %}
+{% else %}{% for quest in quests %}{% if quest.length %}<p>{{ quest.name }} · +{{ quest.bonus }}%</p>{% endif %}{% endfor %}{% endif %}
+</div>{% endfor %}</section>

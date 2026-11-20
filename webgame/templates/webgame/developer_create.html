@@ -1,0 +1,23 @@
+<p><a href="{% url 'page' 'developer-add' %}">← Добавить элемент</a></p>
+<section class="panel reading-width"><form method="post" action="{% url 'action' command %}" data-content-form>
+{% csrf_token %}
+{% if command == "create-skill" %}
+{{ content_form.operation }}{{ content_form.non_field_errors }}
+{{ content_form.name.as_field_group }}{{ content_form.description.as_field_group }}
+{{ content_form.links }}{{ content_form.links.errors }}
+<fieldset class="my-3" data-skill-links>
+<legend>Привязка активностей</legend>
+<p><label for="skill-link-activity">Активность</label>
+<select id="skill-link-activity" class="form-select">
+<option value="">Выберите активность</option>
+{% for key, name in content_form.activities %}<option value="{{ key }}">{{ name }}</option>{% endfor %}
+</select></p>
+<p><label for="skill-link-xp">XP за выполнение</label>
+<input id="skill-link-xp" class="form-control" type="number" min="1" step="1"></p>
+<button type="button" id="skill-link-apply" class="btn btn-outline-secondary">Применить</button>
+<p class="mt-2" id="skill-link-status" role="status"></p>
+<ul class="list-unstyled" id="skill-link-list" aria-label="Связки навыка"></ul>
+</fieldset>
+{% else %}{{ content_form.as_p }}{% endif %}
+<button class="btn btn-primary" type="submit">{{ title }}</button>
+</form></section>

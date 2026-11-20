@@ -63,14 +63,14 @@ def test_journal_cli_restores_levels_and_repeat_count(tmp_path):
     output = run_cli(
         "--state", path, commands="2\nmeditation\n\n2\nmeditation\n\n3\n0\n"
     )
-    assert "Медитация: Воля +75 XP" in output
-    assert "Воля: уровень 2, 50/125 XP" in output
+    assert "Медитация: Воля +62 XP" in output
+    assert "Воля: уровень 2, 24/125 XP" in output
     assert "Повтор за игровой день: 2" in output
 
     restored = run_cli(
         "--state", path, commands="3\n1\nМедитация\n\n4\n0\n"
     )
-    assert "Воля: уровень 2, 50/125 XP" in restored
+    assert "Воля: уровень 2, 24/125 XP" in restored
     assert "выполнено 2; следующее ×0.6" in restored
     assert "#3 — Медитация" in restored
 
@@ -82,7 +82,7 @@ def test_journal_cli_revises_and_revokes_level_after_restart(tmp_path):
         commands="2\nmeditation\n\n2\nmeditation\n\n6\n3\n3\n0\n",
     )
     assert "Воля: уровень 2 снят" in output
-    assert "Воля: уровень 1, 75/100 XP" in output
+    assert "Воля: уровень 1, 62/100 XP" in output
 
     output = run_cli(
         "--state", path, commands="5\n2\nreading\n\n3\n4\n8\n0\n"
@@ -100,10 +100,10 @@ def test_console_perk_quest_streak_survives_restart(tmp_path):
     output = run_cli(
         "--state", path, commands="9\n2\nmeditation\n\n0\n"
     )
-    assert "Медитация: Воля +75 XP" in output
+    assert "Медитация: Воля +62 XP" in output
     assert "Задание выполнено: Раскрой чакры" in output
     output = run_cli("--state", path, commands="3\n10\n0\n")
-    assert "Воля: уровень 1, 75/100 XP" in output
+    assert "Воля: уровень 1, 62/100 XP" in output
     assert "серия 1" in output
 
 
