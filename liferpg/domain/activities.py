@@ -2,7 +2,9 @@
 
 from abc import ABC, abstractmethod
 
-from liferpg.domain.character import Character
+from liferpg.domain.character import ATTRIBUTE_NAMES, Character
+from liferpg.domain.content import definitions, descriptions
+from liferpg.domain.catalog_state import active, available_builtin
 
 
 class XPAction(ABC):
@@ -32,6 +34,21 @@ class Activity(XPAction):
         self.name = name
         self.category = category
         self._rewards = rewards.copy()
+
+    description = ""
+    condition = None
+
+    def requirement(self):
+        if self.condition and self.condition["type"] == "stat":
+            name = ATTRIBUTE_NAMES[self.condition["target"]]
+            return f"{name}: требуется уровень {self.condition['threshold']}"
+        return ""
+
+    def available(self, character):
+        return not self.requirement() or (
+            character.attribute(self.condition["target"]).level
+            >= self.condition["threshold"]
+        )
 
     def rewards(self) -> dict[str, int]:
         return self._rewards.copy()
@@ -66,7 +83,7 @@ class ActivityCompletion:
         return f"#{self.number} — {name} (+{sum(self._xp.values())} XP)"
 
 
-def catalog() -> dict[str, Activity]:
+def catalog(events=(), *, include_inactive=False) -> dict[str, Activity]:
     """Build the initial catalog from section 2.2 of the specification."""
     rows = [
         ("bedtime", "Лёг спать до 02:00", "Сон и режим", {"will": 15}),
@@ -99,7 +116,21 @@ def catalog() -> dict[str, Activity]:
         ("film", "Просмотр фильма", "Отдых",
          {"intelligence": 2, "creativity": 2}),
     ]
-    return {row[0]: Activity(*row) for row in rows}
+    result = {row[0]: Activity(*row) for row in rows
+              if include_inactive
+              or available_builtin(events, "activity", row[0])}
+    for key, data in definitions(events, "activity").items():
+        activity = Activity(
+            key, data["name"], data["category"], data["rewards"]
+        )
+        activity.description = data["description"]
+        activity.condition = data["condition"]
+        result[key] = activity
+    for key, description in descriptions(events, "activity").items():
+        if key in result:
+            result[key].description = description
+    return {key: row for key, row in result.items()
+            if include_inactive or active(events, "activity", key)}
 
 
 def find_activities(

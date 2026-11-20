@@ -1,12 +1,15 @@
 """Run journal-backed game operations and project recorded results."""
 
+from collections import Counter
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 
 from liferpg.domain.achievements import (
-    ACHIEVEMENTS, achievement_effect, evaluate_achievements, unlocked,
+    achievement_effect, achievement_names, evaluate_achievements,
+    evaluate_custom, unlocked,
 )
+from liferpg.domain.activities import catalog
 from liferpg.domain.activity_xp import (
     INTENSITY, completion_xp, game_date, repetition_factor,
 )
@@ -16,9 +19,10 @@ from liferpg.domain.perks import (
     EFFECTS, active_perks, effects_for, lazy_replacement,
 )
 from liferpg.domain.progression import xp_required
-from liferpg.domain.quests import QUESTS, advance, evaluate, quest_state
+from liferpg.domain.content import definitions
+from liferpg.domain.quests import advance, evaluate, quest_catalog, quest_state
 from liferpg.domain.rust import decay_row, rust_state
-from liferpg.domain.skills import WRITING, award_writing
+from liferpg.domain.skills import award_root_skills
 from liferpg.journal import append_event, journal_lock, read_events
 
 
@@ -95,7 +99,16 @@ def xp_rows(before, after, base, credited):
     return rows
 
 
-def complete(path, activity, intensity, operation, local=None):
+class PreviewChanged(ValueError):
+    def __init__(self, day):
+        super().__init__(
+            "Расчёт изменился. Проверьте награду и подтвердите снова."
+        )
+        self.day = day
+
+
+def complete(path, activity, intensity, operation, local=None, *,
+             credited_day=None, expected_payload=None):
     """Apply a completion once, with the repeat count computed under lock."""
     local = local if local is not None else datetime.now().astimezone()
     if local.utcoffset() is None:
@@ -108,19 +121,26 @@ def complete(path, activity, intensity, operation, local=None):
                 payload = event["payload"]
                 if (payload.get("activity_id"), payload.get("intensity")) != (
                     activity.key, intensity
-                ):
+                ) or (credited_day is not None
+                      and event["game_date"] != credited_day.isoformat()):
                     raise ValueError("Идентификатор операции уже использован.")
                 return event
         before, counts = project(events)
+        if activity.key not in catalog(events):
+            raise ValueError("Активность недоступна или архивирована.")
+        if not activity.available(before):
+            raise ValueError(activity.requirement())
         config = configuration(events)
-        key = (game_date(local, config["boundary_minutes"]).isoformat(),
-               activity.key)
+        day = credited_day or game_date(local, config["boundary_minutes"])
+        key = (day.isoformat(), activity.key)
         number = counts.get(key, 0) + 1
         perks, victory = active_perks(events)
         debts, _, _ = rust_state(events)
         payload = completion_payload(
             activity, intensity, number, before, perks, debts, config
         )
+        if expected_payload is not None and payload != expected_payload:
+            raise PreviewChanged(day)
         will = payload["xp_by_stat"].get("will")
         will_level = before.attribute("will").level
         if will is not None:
@@ -128,20 +148,26 @@ def complete(path, activity, intensity, operation, local=None):
         payload["consequences"].extend(
             lazy_replacement(perks, victory, will_level)
         )
-        day = game_date(local, config["boundary_minutes"])
         state = quest_state(events)
-        payload["consequences"].extend(advance(state, day))
+        custom = definitions(events, "quest")
+        payload["consequences"].extend(advance(
+            state, min(day, game_date(local, config["boundary_minutes"])),
+            custom, events=events,
+        ))
         completions = [
             (date.fromisoformat(day_key), item["activity_id"])
             for day_key, item in effective_completions(events).values()
             if item is not None
         ]
         completions.append((day, activity.key))
-        payload["consequences"].extend(evaluate(state, day, completions))
+        payload["consequences"].extend(
+            evaluate(state, day, completions, custom, events=events)
+        )
         payload["quest_state"] = state
-        if activity.key == WRITING:
-            award_writing(events, payload)
+        award_root_skills(events, payload, activity.key)
         evaluate_achievements(events, before, payload)
+        evaluate_custom(events, before, payload,
+                        Counter(key for _, key in completions), {activity.key})
         credited = credits(payload)
         details = ", ".join(
             f"{ATTRIBUTE_NAMES[key]} +{value} XP"
@@ -150,6 +176,11 @@ def complete(path, activity, intensity, operation, local=None):
         event = make_event(
             events, operation, "activity.completed", operation, local, payload,
             f"{activity.name}: {details}",
+        )
+        event.update(
+            game_date=day.isoformat(),
+            game_week_start=(day - timedelta(days=day.weekday())).isoformat(),
+            game_month=day.strftime("%Y-%m"),
         )
         append_event(path, event)
         return event
@@ -350,6 +381,8 @@ def revise_completion(path, target, activity, intensity, *,
             raise ValueError("Выполнение уже отменено.")
         replacement = None
         if activity is not None:
+            if not activity.available(project(events)[0]):
+                raise ValueError(activity.requirement())
             number = 1 + sum(
                 seq < target and date == day and current is not None
                 and current["activity_id"] == activity.key
@@ -367,6 +400,13 @@ def revise_completion(path, target, activity, intensity, *,
              "previous": previous},
             f"{action} выполнения #{target}", local=local,
         )
+        affected = {item["activity_id"] for item in (previous, replacement)
+                    if item is not None}
+        entries[target] = (day, replacement)
+        totals = Counter(item["activity_id"] for _, item in entries.values()
+                         if item is not None)
+        evaluate_custom(events, project(events)[0], event["payload"],
+                        totals, affected)
         if operation:
             event["event_id"] = event["transaction_id"] = operation
         append_event(path, event)
@@ -409,12 +449,13 @@ def settle_periods(path, local=None):
             return
         effects = advance(state, game_date(
             local, configuration(events)["boundary_minutes"]
-        ))
+        ), definitions(events, "quest"), events=events)
         if state["day"] == old_day:
             return
         payload = {"xp_by_stat": {}, "quest_state": state,
                    "consequences": effects}
         evaluate_achievements(events, project(events)[0], payload)
+        evaluate_custom(events, project(events)[0], payload)
         event = make_event(
             events, str(uuid4()), "periods.advanced", "local-player", local,
             payload,
@@ -428,14 +469,14 @@ def developer_update(path, action, key, value=None, *,
     if not developer_mode:
         raise ValueError("Команда доступна в режиме разработчика.")
     if action == "streak":
-        if key not in QUESTS or type(value) is not int or value < 0:
+        if type(value) is not int or value < 0:
             raise ValueError("Укажи код серии и неотрицательную длину.")
     elif action == "level":
         if key not in (*ATTRIBUTE_NAMES, "player"):
             raise ValueError("Неизвестная характеристика.")
         if type(value) is not int or value < 1:
             raise ValueError("Уровень должен быть положительным целым.")
-    elif action != "achievement" or key not in ACHIEVEMENTS:
+    elif action != "achievement":
         raise ValueError("Неизвестное действие или достижение.")
 
     with journal_lock(path):
@@ -444,10 +485,15 @@ def developer_update(path, action, key, value=None, *,
         payload = {"xp_by_stat": {}, "consequences": [],
                    "action": action, "value": value}
         if action == "achievement":
+            if key not in achievement_names(events):
+                raise ValueError("Неизвестное достижение.")
             if key in unlocked(events):
                 return False
             payload["consequences"].append(achievement_effect(key))
         elif action == "streak":
+            if key not in quest_catalog(definitions(events, "quest"), events):
+                raise ValueError("Неизвестная серия.")
+            payload["streak_key"] = key
             state = quest_state(events)
             streak = state["streaks"].setdefault(
                 key, dict(duration=0, successful=0, protected=0, best=0,
@@ -471,6 +517,7 @@ def developer_update(path, action, key, value=None, *,
                 payload["consequences"].extend(
                     lazy_replacement(perks, victory, value)
                 )
+        evaluate_custom(events, character, payload)
         event = make_event(
             events, operation or str(uuid4()), "developer.updated", key,
             local or datetime.now().astimezone(), payload,

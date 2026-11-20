@@ -1,0 +1,5 @@
+<p><a href="{% url 'page' 'settings' %}">← Настройки</a></p>
+<div class="content-grid">{% for target, labels in create_items %}
+<section class="panel"><h2>{{ labels.0 }}</h2>
+<a class="btn btn-primary" href="{% url 'page' target %}">{{ labels.1 }}</a></section>
+{% endfor %}</div>

@@ -1,46 +1,88 @@
-# Python
+# Python bytecode and tool caches
 __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 
-# Virtual environment
+# Virtual environments
 .venv/
 venv/
+env/
+ENV/
 
-# Environment variables
+# Local configuration and credentials
 .env
 .env.*
+!.env.example
+!.env.template
+/secrets/
+/credentials/
+.aws/
+.ssh/
+*.pem
+*.key
+*.pfx
+*.p12
 
-# IDE
+# IDE and assistant local state
 .idea/
 .vscode/
-
-# Local database
-db.sqlite3
-
-# Local logs
-*.log
-events.jsonl
-
-# Codex
-AGENTS.md
 .codex/
+AGENTS.md
 
-# Local saves, test journals and backups
+# Local saves, personal media, exports and test profiles
 /data/
-*.jsonl.lock
-*.jsonl.bak
+/release-test-data/
+/release-test-data-*/
+/backups/
+/exports/
+/media/
+/uploads/
+/state.json
+/profile.json
+*.jsonl
+*.jsonl.*
+*.bak
+*.backup
 
-# Local databases and lock files
+# Local databases and their transaction files
+*.sqlite
+*.sqlite-*
 *.sqlite3
 *.sqlite3-*
+*.db
+*.db-*
 *.lock
 
-# Windows desktop build
+# Logs and crash reports
+*.log
+*.log.*
+/logs/
+*.dmp
+*.stackdump
+
+# Windows desktop packaging and browser runtime data
 /dist/
 /build/
 /LifeRPG.exe
 /_internal/
+*.lnk
+*.WebView2/
+
+# Temporary files and operating system metadata
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+[Dd]esktop.ini

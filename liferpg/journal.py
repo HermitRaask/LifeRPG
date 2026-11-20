@@ -10,6 +10,7 @@ from uuid import UUID
 
 from liferpg.domain.character import ATTRIBUTE_NAMES
 from liferpg.domain.configuration import validate_configuration
+from liferpg.domain.content import validate_definition, validate_texts
 
 
 _event_context = ContextVar("event_context", default=None)
@@ -73,9 +74,57 @@ def validate(event):
         "activity.completed", "system.legacy_imported", "rules.updated",
         "correction.applied", "perk.updated", "periods.advanced",
         "developer.updated", "rust.decayed", "settings.updated",
-        "report.generated",
+        "report.generated", "preferences.updated",
+        "activity.created", "quest.created", "achievement.created",
+        "description.updated", "display.updated", "system.preferences",
+        "texts.updated", "profile.initialized", "onboarding.updated",
+        "catalog.archived", "catalog.restored",
+        "display.activity",
     ):
         raise ValueError("неизвестный тип события")
+    if kind == "profile.initialized":
+        if payload["preset"] not in ("preset", "empty"):
+            raise ValueError("Неизвестный начальный профиль.")
+        for content_kind, rows in payload["seed"].items():
+            for row in rows.values():
+                validate_definition(content_kind, row)
+    if kind == "onboarding.updated":
+        tutorial = payload["tutorial"]
+        if (type(tutorial["active"]) is not bool
+                or type(tutorial["finished"]) is not bool
+                or type(tutorial["step"]) is not int
+                or not 0 <= tutorial["step"] < 25):
+            raise ValueError("Некорректное состояние обучения.")
+    if kind in ("catalog.archived", "catalog.restored"):
+        field = "archives" if kind == "catalog.archived" else "restored"
+        rows = payload[field]
+        if not isinstance(rows, list) or not rows:
+            raise ValueError("Пустая операция архива.")
+        for row in rows:
+            if row["kind"] not in ("activity", "quest", "skill"):
+                raise ValueError("Неизвестный тип элемента.")
+            if not isinstance(row["key"], str) or not row["key"]:
+                raise ValueError("Некорректный идентификатор.")
+            if kind == "catalog.archived":
+                if not isinstance(row["snapshot"], dict):
+                    raise ValueError("Нет снимка элемента.")
+    if kind in ("activity.created", "quest.created", "achievement.created",
+                "skill.created"):
+        validate_definition(kind.split(".")[0], payload["definition"])
+    if kind in ("display.updated", "system.preferences"):
+        if not isinstance(payload["preferences"], dict):
+            raise ValueError("Некорректные настройки.")
+    if kind == "texts.updated":
+        validate_texts(payload["kind"], payload["texts"])
+    if kind == "description.updated":
+        if (payload["kind"] not in ("activity", "quest", "achievement")
+                or not isinstance(payload["description"], str)):
+            raise ValueError("Некорректное описание.")
+    if kind == "preferences.updated":
+        pins = payload["pinned_activities"]
+        if (not isinstance(pins, list)
+                or any(not isinstance(k, str) for k in pins)):
+            raise ValueError("некорректные закреплённые активности")
     if kind == "settings.updated":
         validate_configuration(payload["before"])
         validate_configuration(payload["after"])

@@ -1,2 +1,21 @@
-<div class="content-grid"><section class="panel"><h2>Игровое время и сохранение</h2><p class="muted">Неделя начинается в понедельник. {% if clock_locked %}Смена времени после начала игры недоступна: правило перехода уточняется.{% else %}Настройте время до первого выполнения активности.{% endif %}</p><form method="post" action="{% url 'action' 'settings' %}">{% csrf_token %}{{ settings_form.as_p }}<button class="btn btn-primary">Сохранить настройки</button></form></section>
-<section class="panel"><h2>Резервная копия</h2><p class="muted">Копия журнала сохраняется в data/web/backups. Она содержит события и настройки, необходимые для восстановления.</p><form method="post" action="{% url 'action' 'backup' %}">{% csrf_token %}<button class="btn btn-outline-secondary">Создать копию сейчас</button></form><hr><h3>Правила начисления</h3><p>Текущая версия {{ state.config.version }}. Коэффициенты интенсивности и повторов доступны в режиме разработчика.</p><a href="{% url 'page' 'developer' %}">Открыть режим разработчика →</a></section></div>
+<div class="content-grid settings-grid">
+<section class="panel settings-action-panel" id="content-editor"><h2>Управление элементами</h2>
+<div class="display-settings-actions">
+<a class="btn btn-primary" href="{% url 'page' 'developer-add' %}">Добавить элемент</a>
+<a class="btn btn-primary" href="{% url 'page' 'developer-edit' %}">Изменить элемент</a>
+<a class="btn btn-outline-secondary" href="{% url 'page' 'catalog' %}">Архивировать элемент</a>
+</div></section>
+<section class="panel" id="system-settings"><h2>Системные настройки</h2>
+{% if desktop_available %}<form action="{% url 'action' 'system' %}" method="post" data-system-form>
+{% csrf_token %}{{ system_form.as_p }}<button class="btn btn-primary">Сохранить системные настройки</button>
+</form>{% else %}<p>Эти настройки доступны в приложении Windows.</p>{% endif %}</section>
+<section class="panel display-settings-panel settings-action-panel" id="display-settings"><h2>Отображение элементов</h2>
+<div class="display-settings-actions">
+<a class="btn btn-primary" href="{% url 'page' 'display' %}">Отображение заданий</a>
+<a class="btn btn-primary" href="{% url 'page' 'elements' %}">Основные элементы</a>
+<button class="btn btn-outline-secondary" disabled>Тема приложения · Скоро</button></div></section>
+<section class="panel" id="backup-settings"><h2>Резервная копия</h2><p class="muted">Копия журнала сохраняется в data/web/backups. Она содержит события и настройки, необходимые для восстановления.</p><form method="post" action="{% url 'action' 'backup' %}">{% csrf_token %}<button class="btn btn-outline-secondary">Создать копию сейчас</button></form><hr><h3>Правила начисления</h3><p>Текущая версия {{ state.config.version }}. Коэффициенты интенсивности и повторов доступны в режиме разработчика.</p>{% if display.show_developer %}<a href="{% url 'page' 'developer' %}">Открыть режим разработчика →</a>{% endif %}</section>
+<section class="panel" id="game-time-settings"><h2>Игровое время и сохранение</h2><p class="muted">Неделя начинается в понедельник. Новая граница суток применяется к следующим расчётам. Даты и награды сохранённых активностей не меняются.</p><form method="post" action="{% url 'action' 'settings' %}">{% csrf_token %}{{ settings_form.as_p }}<button class="btn btn-primary">Сохранить настройки</button></form></section>
+<section class="panel"><h2>Обучение</h2><p>Познакомьтесь с приложением на демонстрационных данных. Личный прогресс сохраняется.</p>
+<form method="post" action="{% url 'onboarding-action' %}">{% csrf_token %}<input type="hidden" name="move" value="start"><button class="btn btn-primary">Пройти обучение</button></form></section>
+</div>

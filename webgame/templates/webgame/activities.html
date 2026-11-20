@@ -1,11 +1,34 @@
-<div class="activity-layout"><section class="panel"><div class="section-heading"><h2>{% if preview_payload %}Подтвердите выполнение{% else %}Выполнить активность{% endif %}</h2></div>
+{% if request.GET.activity or preview_payload or activity_form.errors %}
+<section class="panel" id="activity-calculator">
+<h2>{% if preview_payload %}Подтвердите выполнение{% else %}Рассчитать активность{% endif %}</h2>
+{% if preview_notice %}<p role="alert">{{ preview_notice }}</p>{% endif %}
 <form action="{% if preview_payload %}{% url 'action' 'complete' %}{% else %}{% url 'preview' %}{% endif %}" method="post" class="activity-form">{% csrf_token %}
-{% if preview_payload %}{% for field in activity_form %}{{ field.as_hidden }}{% endfor %}<h3>{{ preview_payload.activity_name_snapshot }}</h3><p class="muted">Выполнение №{{ preview_payload.occurrence_index_in_game_day }} за игровой день</p>
-{% include "webgame/_rewards.html" with rows=preview_rows %}{% if preview_payload.activity_id == "writing" %}<p class="green">Писательство +50 XP навыка</p>{% endif %}
-<p class="muted">Предварительный расчёт. При изменении прогресса в другой вкладке результат обновится по состоянию на момент подтверждения.</p>
-<button class="btn btn-primary" type="submit">Подтвердить выполнение</button><a class="btn btn-outline-secondary" href="{% url 'page' 'activities' %}">Назад</a>
-{% else %}{{ activity_form.as_p }}<button class="btn btn-primary" type="submit">Рассчитать награду →</button>{% endif %}</form></section>
-<section class="panel"><div class="section-heading"><h2>Каталог активностей</h2><span class="pill">{{ activities|length }}</span></div>
-<label for="activity-search" class="visually-hidden">Поиск активности</label><input id="activity-search" class="form-control mb-3" type="search" placeholder="Найти активность…" autocomplete="off">
-<label for="category-filter" class="visually-hidden">Категория</label><select class="form-select mb-3" id="category-filter"><option value="">Все категории</option></select>
-<div class="activity-catalog">{% for activity in activities %}<a class="catalog-item" data-search="{{ activity.name|lower }}" data-category="{{ activity.category }}" href="{% url 'page' 'activities' %}?activity={{ activity.key }}"><span><small>{{ activity.category }}</small><strong>{{ activity.name }}</strong><small>Базовый XP: {{ activity.rewards }}</small></span><span class="catalog-count">{{ activity.count }} сегодня <span aria-hidden="true">↗</span></span></a>{% endfor %}</div><p id="no-activities" class="muted" hidden>Ничего не найдено. Попробуйте другой запрос.</p></section></div>
+{% if preview_payload %}
+{% for field in activity_form %}{{ field.as_hidden }}{% endfor %}
+<h3>{{ preview_payload.activity_name_snapshot }}</h3>
+<p>День зачёта · <strong>{{ selected_day|date:"d.m.Y" }}</strong></p>
+<p>Интенсивность · {% if preview_payload.intensity == "1" %}Лёгкая{% elif preview_payload.intensity == "3" %}Высокая{% else %}Обычная{% endif %}</p>
+{% if developer %}<p class="muted">Выполнение №{{ preview_payload.occurrence_index_in_game_day }} за игровой день</p>{% endif %}
+{% include "webgame/_rewards.html" with rows=preview_rows %}
+{% for name, xp in preview_skill_rewards %}<p class="green">{{ name }} +{{ xp }} XP навыка</p>{% endfor %}
+{% if developer %}<p class="muted">Предварительный расчёт. При изменении прогресса потребуется повторное подтверждение обновлённой награды.</p>{% endif %}
+<button class="btn btn-primary" type="submit">Подтвердить выполнение</button>
+<a class="btn btn-outline-secondary" href="{% url 'page' 'activities' %}">Назад</a>
+{% else %}{{ activity_form.as_p }}<button class="btn btn-primary" type="submit">Рассчитать награду →</button>{% endif %}
+</form></section>
+{% endif %}
+<section class="panel">
+<h2>Каталог активностей</h2>
+<label for="activity-search">Поиск по названию</label>
+<input id="activity-search" class="form-control mb-3" type="search" placeholder="Найти активность…" autocomplete="off">
+<fieldset class="category-filters"><legend>Категории</legend>
+{% for category in categories %}<label><input type="checkbox" name="category-filter" value="{{ category }}"> {{ category }}</label>{% endfor %}
+</fieldset><p class="muted">Без выбранных категорий показаны все активности.</p>
+<section class="catalog-group"><h3>Закреплённые</h3>
+<div class="tile-grid">{% for activity in pinned %}{% include "webgame/_activity_tile.html" %}{% empty %}<p class="muted">Закрепите нужные активности кнопкой на плитке.</p>{% endfor %}</div></section>
+{% regroup activities by category as groups %}
+{% for group in groups %}<section class="catalog-group" data-filter-group><h3>{{ group.grouper }}</h3><div class="tile-grid">
+{% for activity in group.list %}{% include "webgame/_activity_tile.html" %}{% endfor %}
+</div></section>{% endfor %}
+<p id="no-activities" class="muted" role="status" hidden>Ничего не найдено. Измените запрос или выбранные категории.</p>
+</section>

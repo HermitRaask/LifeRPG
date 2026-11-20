@@ -1,0 +1,8 @@
+<section class="panel">
+{% for item in notification_page %}<article class="audit-row"><p>{{ item.text }}</p>
+<small>{{ item.time }}</small></article>{% empty %}<p>Пока нет уведомлений.</p>{% endfor %}
+<div class="pagination-bar">
+{% if notification_page.has_previous %}<a href="?page={{ notification_page.previous_page_number }}">← Назад</a>{% endif %}
+<span>{{ notification_page.number }} / {{ notification_page.paginator.num_pages }}</span>
+{% if notification_page.has_next %}<a href="?page={{ notification_page.next_page_number }}">Далее →</a>{% endif %}
+</div></section>

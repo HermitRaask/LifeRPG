@@ -1,9 +1,14 @@
 <section class="panel developer-banner"><div><h2>{% if developer %}Режим включён{% else %}Режим выключен{% endif %}</h2><p class="muted">Ручные изменения сохраняются в журнале. Выход сохраняет настройки перков.</p></div><form method="post" action="{% url 'action' 'developer' %}">{% csrf_token %}<input type="hidden" name="enabled" value="{% if developer %}0{% else %}1{% endif %}"><button class="btn {% if developer %}btn-outline-secondary{% else %}btn-primary{% endif %}">{% if developer %}Выйти из режима{% else %}Включить режим{% endif %}</button></form></section>
 {% if developer %}
-{% if request.session.batch_result %}<section class="panel result-panel"><h2>Результат партии</h2><p>Записано {{ request.session.batch_result.done }} / {{ request.session.batch_result.total }} выполнений.</p>{% for stat, xp in request.session.batch_result.xp.items %}<p>{{ stat }} +{{ xp }} XP</p>{% endfor %}<p>Писательство +{{ request.session.batch_result.skill }} XP</p>{% if request.session.batch_result.error %}<p class="debt">{{ request.session.batch_result.error }}</p>{% endif %}</section>{% endif %}
-<section class="panel"><h2>Состояние перков</h2>{% include "webgame/_perks.html" %}</section>
-<div class="content-grid">{% for command, label, form in developer_forms %}<section class="panel"><h2>{{ label }}</h2><form method="post" action="{% url 'action' command %}">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary">Применить</button></form></section>{% endfor %}</div>
+<div id="developer-tools">
+{% if request.session.batch_result and not tutorial %}<section class="panel result-panel"><h2>Результат партии</h2><p>Записано {{ request.session.batch_result.done }} / {{ request.session.batch_result.total }} выполнений.</p>{% for stat, xp in request.session.batch_result.xp.items %}<p>{{ stat }} +{{ xp }} XP</p>{% endfor %}<p>Писательство +{{ request.session.batch_result.skill }} XP</p>{% if request.session.batch_result.error %}<p class="debt">{{ request.session.batch_result.error }}</p>{% endif %}</section>{% endif %}
+<section class="panel"><h2>Заморозки</h2><div class="content-grid">
+{% for form in freeze_forms %}<form method="post" action="{% url 'action' 'freezes' %}">
+{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary">Сохранить заморозки</button></form>{% endfor %}
+</div></section><p><a class="btn btn-outline-secondary" href="{% url 'page' 'archive' %}">Архив</a></p><div class="content-grid">
+{% for command, label, form in developer_forms %}<section class="panel"><h2>{{ label }}</h2><form method="post" action="{% url 'action' command %}">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary">Применить</button></form></section>{% endfor %}</div>
 <section class="panel"><details><summary>Диагностика журнала · {{ events|length }} событий</summary><p class="muted">Все завершённые строки прошли проверку схемы и последовательности при чтении.</p>{% for event in events %}<div class="audit-row"><small>#{{ event.seq }} · {{ event.event_type }} · правила {{ event.rules_version }}</small><p>{{ event.message_ru }}</p><details><summary>Структура события</summary><pre>{{ event }}</pre></details></div>{% endfor %}</details></section>
+</div>
 {% endif %}
 
 {% if developer and batch_retry %}<section class="panel"><h2>Продолжить партию</h2>

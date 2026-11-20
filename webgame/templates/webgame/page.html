@@ -1,15 +1,31 @@
 {% extends "webgame/base.html" %}{% block content %}
+{% if tutorial %}<fieldset disabled class="tutorial-content">{% endif %}
 <div class="page-heading"><div><div class="eyebrow green">ВАШ ПУТЬ, ВАШИ ПРАВИЛА</div><h1>{{ title }}</h1><p>{{ subtitle }}</p></div><div class="day-pill"><span class="online-dot"></span> Игровой день · {{ game_date|date:"d.m.Y" }}</div></div>
-{% if result_event %}<section class="panel result-panel" role="status"><div class="section-heading"><h2>Действие сохранено</h2><span class="status on">Готово</span></div><p>{{ result_event.message_ru }}</p>{% include "webgame/_rewards.html" with rows=result_rows %}{% for text in result_messages %}<div class="result-effect">✧ {{ text }}</div>{% endfor %}</section>{% endif %}
+{% if result_event %}<section class="panel result-panel" role="status"><div class="section-heading"><h2>Действие сохранено</h2><span class="status on">Готово</span></div><p>{{ result_event.message_ru }}</p><p>День зачёта · {{ result_event.game_date }}</p>
+{% if result_event.event_type == "activity.completed" %}<p>Интенсивность · {% if result_event.payload.intensity == "1" %}Лёгкая{% elif result_event.payload.intensity == "3" %}Высокая{% else %}Обычная{% endif %}</p>{% if developer %}<p>Выполнение №{{ result_event.payload.occurrence_index_in_game_day }} за игровой день</p>{% endif %}{% endif %}{% include "webgame/_rewards.html" with rows=result_rows %}{% for text in result_messages %}<div class="result-effect">✧ {{ text }}</div>{% endfor %}</section>{% endif %}
 {% if section == "overview" or section == "stats" %}<div class="section-heading"><h2>Характеристики</h2><span class="muted">{% if state.player_level %}Общий уровень {{ state.player_level }} · задан вручную{% else %}Общий уровень · правило уточняется{% endif %}</span></div>{% include "webgame/_stats.html" %}{% endif %}
 {% if section == "overview" %}{% include "webgame/overview.html" %}
 {% elif section == "activities" %}{% include "webgame/activities.html" %}
 {% elif section == "skills" %}{% include "webgame/skills.html" %}
 {% elif section == "quests" %}{% include "webgame/quests.html" %}
-{% elif section == "perks" %}<section class="panel reading-width"><p class="muted">Настройка перков доступна в режиме разработчика.</p>{% include "webgame/_perks.html" %}</section>
+{% elif section == "stats" %}<div class="section-heading"><h2>Базовые навыки</h2></div>
+<div class="stats-grid root-skills">{% for skill in skills %}
+<article class="stat-card"><div class="stat-top"><h3>{{ skill.name }}</h3></div>
+<div class="level-number">{{ skill.level }}<span>/ 15 уровней</span></div>
+<div class="progress" role="progressbar" aria-label="{{ skill.name }}" aria-valuenow="{{ skill.percent }}" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width:{{ skill.percent }}%"></div></div>
+<p class="xp-caption">{{ skill.xp }} / {{ skill.required }} XP{% if skill.level == 15 %} к мастерству{% endif %}</p>
+<span class="status">{% if skill.mastered %}Мастерский{% else %}Мастерство ещё не получено{% endif %}</span>
+</article>{% endfor %}</div><div class="dashboard-grid"><section class="panel" id="perks"><h2>Перки</h2>{% include "webgame/_perks.html" with show_toggles=developer %}</section>{% include "webgame/_modifiers.html" %}</div>
 {% elif section == "achievements" %}{% include "webgame/achievements.html" %}
 {% elif section == "history" %}{% include "webgame/history.html" %}
 {% elif section == "reports" %}{% include "webgame/reports.html" %}
 {% elif section == "settings" %}{% include "webgame/settings.html" %}
-{% elif section == "developer" %}{% include "webgame/developer.html" %}{% endif %}
+{% elif section == "developer" %}{% include "webgame/developer.html" %}
+{% elif section == "notifications" %}{% include "webgame/notifications.html" %}
+{% elif section == "elements" %}{% include "webgame/elements.html" %}
+{% elif section == "display" %}{% include "webgame/display.html" %}
+{% elif section == "developer-add" %}{% include "webgame/developer_add.html" %}
+{% elif section == "developer-edit" %}{% include "webgame/developer_edit.html" %}
+{% elif content_form %}{% include "webgame/developer_create.html" %}{% endif %}
+{% if tutorial %}</fieldset>{% endif %}
 {% endblock %}
