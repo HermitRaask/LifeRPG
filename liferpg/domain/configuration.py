@@ -10,16 +10,23 @@ DEFAULTS = {
     "intensity": {key: str(value) for key, value in INTENSITY.items()},
     "repetition": [str(value) for value in REPETITION],
     "version": RULES_VERSION, "backup_on_change": False,
+    "perk_rules_version": 3,
 }
 
 
 def configuration(events):
+    result = deepcopy(DEFAULTS)
     for event in reversed(events):
         if event["event_type"] == "settings.updated":
-            return deepcopy(event["payload"]["after"])
+            result = deepcopy(event["payload"]["after"])
+            break
         if "configuration_snapshot" in event["payload"]:
-            return deepcopy(event["payload"]["configuration_snapshot"])
-    return deepcopy(DEFAULTS)
+            result = deepcopy(event["payload"]["configuration_snapshot"])
+            break
+    if result.get("perk_rules_version", 1) < 3:
+        result["version"] = max(RULES_VERSION, result["version"] + 1)
+        result["perk_rules_version"] = 3
+    return result
 
 
 def validate_configuration(config):

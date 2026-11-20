@@ -1,0 +1,8 @@
+{% extends "webgame/base.html" %}{% block content %}
+<section class="panel reading-width"><h1>{% if choose %}Выберите начальный профиль{% else %}Добро пожаловать в LifeRPG{% endif %}</h1>
+{% if choose %}<p>Оба варианта начинают игру с уровня 1 и 0 XP. Профиль один; выбор сохраняется.</p>
+<form method="post" action="{% url 'onboarding-action' %}">{% csrf_token %}<input type="hidden" name="move" value="choose">
+<button class="btn btn-primary" name="preset" value="preset">Предустановленный профиль</button><p>Готовые активности, задания, перки, навыки и достижения.</p>
+<button class="btn btn-outline-secondary" name="preset" value="empty">Пустой профиль</button><p>Стандартные характеристики и модификаторы, пять основных достижений. Остальной каталог вы создаёте сами.</p></form>
+{% else %}<p>Обучение покажет приложение на демонстрационных данных. Затем вы выберете начальное содержимое профиля.</p>
+<form method="post" action="{% url 'onboarding-action' %}">{% csrf_token %}<button class="btn btn-primary" name="move" value="start">Пройти обучение</button> <button class="btn btn-outline-secondary" name="move" value="skip">Пропустить</button></form>{% endif %}</section>{% endblock %}

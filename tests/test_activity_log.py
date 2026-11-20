@@ -8,7 +8,7 @@ from liferpg.domain.character import Character
 
 def test_catalog_search_filter_and_sort():
     activities = catalog()
-    assert len(activities) == 19
+    assert len(activities) == 20
     assert [
         activity.key for activity in find_activities(activities, "ТРЕНИР")
     ] == ["training", "weapons"]

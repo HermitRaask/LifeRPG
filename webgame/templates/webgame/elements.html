@@ -1,0 +1,8 @@
+<p><a href="{% url 'page' 'settings' %}">← Общие настройки</a></p>
+<section class="panel reading-width"><form method="post" action="{% url 'action' 'display' %}">
+{% csrf_token %}<input type="hidden" name="panel" value="elements">
+{{ display_form.operation }}{{ display_form.non_field_errors }}
+<div class="element-toggle">{{ display_form.show_next }}<label for="{{ display_form.show_next.id_for_label }}">{{ display_form.show_next.label }}</label>{{ display_form.show_next.errors }}</div><div class="element-toggle">{{ display_form.show_perks }}<label for="{{ display_form.show_perks.id_for_label }}">{{ display_form.show_perks.label }}</label>{{ display_form.show_perks.errors }}</div>
+<div class="element-toggle">{{ display_form.show_modifiers }}<label for="{{ display_form.show_modifiers.id_for_label }}">{{ display_form.show_modifiers.label }}</label>{{ display_form.show_modifiers.errors }}</div><div class="element-toggle">{{ display_form.show_developer }}<label for="{{ display_form.show_developer.id_for_label }}">{{ display_form.show_developer.label }}</label>{{ display_form.show_developer.errors }}</div>
+<button class="btn btn-primary mt-3">Сохранить отображение</button>
+</form></section>

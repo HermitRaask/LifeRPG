@@ -1,0 +1,6 @@
+<section class="panel"><div class="section-heading"><h2>{{ heading }}</h2>
+<a href="{% url 'page' 'quests' %}">{{ panel.done }} / {{ panel.total }} →</a></div>
+{% for quest in panel.rows %}<div class="quest-row"><span aria-hidden="true">{% if quest.done %}✓{% else %}○{% endif %}</span>
+<div><strong>{{ quest.name }}</strong><small>{{ quest.rule }}{% if quest.progress %}<br>{{ quest.progress }}{% endif %}</small></div></div>{% endfor %}
+{% if panel.message %}<p class="muted">{{ panel.message }}</p>{% endif %}
+</section>

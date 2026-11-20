@@ -1,29 +1,45 @@
 """Journal-first commands and transactional, disposable SQLite projections."""
+from collections import Counter
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from threading import Lock
 from uuid import UUID, uuid4, uuid5
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.core import signing
 from django.db import transaction
 
 from liferpg.domain.activities import catalog
 from liferpg.domain.activity_xp import game_date
-from liferpg.domain.achievements import unlocked
+from liferpg.domain.achievements import (
+    achievement_effect, achievement_names, achievement_skill_progress,
+    condition_met, evaluate_custom,
+    unlocked,
+)
 from liferpg.domain.character import ATTRIBUTE_NAMES
 from liferpg.domain.configuration import configuration
-from liferpg.domain.perks import active_perks
-from liferpg.domain.quests import quest_state, week_start
+from liferpg.domain.perks import PERKS, active_perks
+from liferpg.domain.content import (
+    CONTENT_COMMANDS, MODIFIERS, definitions, validate_definition,
+    validate_texts,
+)
+from liferpg.domain.quests import (
+    advance, evaluate, quest_catalog, quest_state, week_start,
+)
 from liferpg.domain.rust import rust_state
-from liferpg.domain.skills import writing_progress
+from liferpg.domain.skills import root_progress, writing_progress
 from liferpg.game import (
-    complete, completion_payload, developer_update,
-    make_event, project, revise_completion, set_perk, settle_periods,
+    PreviewChanged, complete, completion_payload, developer_update,
+    effective_completions, make_event, project, revise_completion, set_perk,
+    settle_periods,
 )
 from liferpg.journal import (
     append_event, backup_journal, event_context, journal_lock, read_events,
 )
+from liferpg.preferences import preferences
 from liferpg.statistics import manual_player_level, period_statistics
 from webgame.models import GameState, RecordedEvent, Report
 
@@ -32,8 +48,14 @@ def journal_path():
     return Path(settings.DATA_DIR) / "events.jsonl"
 
 
+_web_threads = Lock()
+
+
+@contextmanager
 def web_lock():
-    return journal_lock(journal_path().with_name("web-operations"))
+    lock = journal_path().with_name("web-operations")
+    with _web_threads, journal_lock(lock):
+        yield
 
 
 def local_now(config):
@@ -54,6 +76,7 @@ def snapshot(events):
         "counts": [[day, key, value] for (day, key), value in counts.items()],
         "perks": sorted(perks), "quests": quest_state(events),
         "writing": writing_progress(events),
+        "root_skills": root_progress(events),
         "achievements": sorted(unlocked(events)),
         "player_level": manual_player_level(events),
         "config": configuration(events),
@@ -161,20 +184,69 @@ def refresh(*, advance=False, moment=None):
         return synchronize()
 
 
-def preview(activity, intensity):
+def day_choices(config, moment=None):
+    moment = moment or local_now(config)
+    current = game_date(moment, config["boundary_minutes"])
+    return {"current": current, "previous": current - timedelta(days=1)}
+
+
+def preview(activity, intensity, credited_day=None):
     with web_lock():
         events, _ = synchronize()
-        config = configuration(events)
-        moment = local_now(config)
-        character, counts = project(events)
-        number = counts.get((
-            game_date(moment, config["boundary_minutes"]).isoformat(),
-            activity.key,
-        ), 0) + 1
-        return completion_payload(
-            activity, intensity, number, character, active_perks(events)[0],
-            rust_state(events)[0], config,
+        return preview_from_events(events, activity, intensity, credited_day)
+
+
+def preview_from_events(events, activity, intensity, credited_day=None):
+    if activity.key not in catalog(events):
+        raise ValueError("Активность недоступна или архивирована.")
+    config = configuration(events)
+    day = credited_day or day_choices(config)["current"]
+    character, counts = project(events)
+    if not activity.available(character):
+        raise ValueError(activity.requirement())
+    number = counts.get((day.isoformat(), activity.key), 0) + 1
+    return completion_payload(
+        activity, intensity, number, character, active_perks(events)[0],
+        rust_state(events)[0], config,
+    )
+
+
+def quote(values, operation, *, day=None):
+    with web_lock():
+        events, _ = synchronize()
+        choices = day_choices(configuration(events))
+        choice = values.get("day_choice") or "current"
+        if choice not in choices:
+            raise ValueError("Недопустимый выбор дня.")
+        day = day or choices[choice]
+        payload = preview_from_events(
+            events, catalog(events)[values["activity"]],
+            values["intensity"], day,
         )
+        token = signing.dumps({
+            "operation": str(operation), "activity": values["activity"],
+            "intensity": values["intensity"], "day": day.isoformat(),
+            "day_choice": choice, "payload": payload,
+        }, salt="activity-preview", compress=True)
+        return payload, day, token
+
+
+def verified_quote(values, operation):
+    try:
+        if values.get("day_choice") not in (None, "", "current", "previous"):
+            raise ValueError
+        data = signing.loads(values.get("quote", ""), salt="activity-preview")
+        if any(data[key] != expected for key, expected in (
+            ("operation", operation), ("activity", values["activity"]),
+            ("intensity", values["intensity"]),
+            ("day_choice", values.get("day_choice") or "current"),
+        )):
+            raise ValueError
+        return data
+    except (signing.BadSignature, KeyError, ValueError, TypeError) as exc:
+        raise ValueError(
+            "Сначала рассчитайте награду для выбранного дня."
+        ) from exc
 
 
 def save_settings(events, values, operation, developer):
@@ -186,15 +258,6 @@ def save_settings(events, values, operation, developer):
         after.update(intensity=values["intensity"],
                      repetition=values["repetition"])
     else:
-        clock_changed = any(values[k] != before[k] for k in
-                            ("timezone", "boundary_minutes"))
-        started = any(e["event_type"] in (
-            "activity.completed", "periods.advanced"
-        ) for e in events)
-        if clock_changed and started:
-            raise ValueError(
-                "Правило смены игровых суток после начала игры уточняется."
-            )
         after.update(values)
     after["version"] = before["version"] + 1
     moment = local_now(before)
@@ -225,15 +288,25 @@ def backup():
     return destination
 
 
-def execute(command, values, operation, *, developer=False):
+def execute(command, values, operation, *, developer=False,
+            developer_revision=None):
     """Serialize web commands; UUID and request data survive DB failure."""
     operation = str(UUID(str(operation)))
-    if command in ("perk", "level", "streak", "achievement", "batch", "rules"):
-        if not developer:
-            raise ValueError("Команда доступна в режиме разработчика.")
+    privileged = command in {
+        "perk", "level", "streak", "achievement", "batch", "rules",
+        "freezes", "restore",
+    }
+    if privileged and not developer:
+        raise ValueError("Команда доступна в режиме разработчика.")
     signature = {"command": command, "values": values}
     with web_lock():
         events, _ = synchronize()
+        display = preferences(events, "display.updated")
+        if privileged and developer_revision is not None and (
+            not display["show_developer"]
+            or developer_revision != display["developer_revision"]
+        ):
+            raise ValueError("Режим разработчика выключен.")
         prior = next((e for e in events
                       if e["transaction_id"] == operation), None)
         if prior:
@@ -245,13 +318,87 @@ def execute(command, values, operation, *, developer=False):
         result = None
         with event_context(signature):
             if command == "complete":
+                if values["activity"] not in catalog(events):
+                    raise ValueError("Активность недоступна или архивирована.")
+                day = None
+                quoted = None
+                if "quote" in values:
+                    quoted = verified_quote(values, operation)
+                    day = date.fromisoformat(quoted["day"])
+                    current = preview_from_events(
+                        events, catalog(events)[values["activity"]],
+                        values["intensity"], day,
+                    )
+                    if current != quoted["payload"]:
+                        raise PreviewChanged(day)
                 result = complete(
-                    journal_path(), catalog()[values["activity"]],
+                    journal_path(), catalog(events)[values["activity"]],
                     values["intensity"], operation, moment,
+                    credited_day=day,
+                    expected_payload=quoted["payload"] if quoted else None,
                 )
+            elif command in ("profile", "tutorial", "archive", "restore"):
+                from webgame.catalog_services import change
+                result = change(events, command, values, operation, moment)
+            elif command in CONTENT_COMMANDS:
+                result = create_content(events, command, values, operation,
+                                        moment)
+            elif command in ("display", "system", "description",
+                             "quick-activity"):
+                result = update_preferences(
+                    events, command, values, operation, moment, display
+                )
+            elif command == "freezes":
+                state = quest_state(events)
+                kind = values["kind"]
+                if kind not in ("daily", "weekly") or any(
+                    type(values[key]) is not int or values[key] < minimum
+                    for key, minimum in (("stock", 0), ("maximum", 0),
+                                         ("amount", 0), ("interval", 1))
+                ):
+                    raise ValueError("Некорректные параметры заморозок.")
+                if values["stock"] > values["maximum"]:
+                    raise ValueError(
+                        "Сначала уменьшите запас до нового максимума."
+                    )
+                state["banks"][kind] = values["stock"]
+                state.setdefault("freeze_settings", {})[kind] = {
+                    key: values[key]
+                    for key in ("maximum", "amount", "interval")
+                }
+                # Do not reissue the currently open calendar period.
+                day = day_choices(config, moment)["current"]
+                marker = (week_start(day) if kind == "daily"
+                          else day.replace(day=1))
+                state.setdefault("freeze_calendar", {}).setdefault(
+                    kind, marker.isoformat()
+                )
+                result = make_event(
+                    events, operation, "developer.updated", "freezes", moment,
+                    {"xp_by_stat": {}, "consequences": [],
+                     "quest_state": state, "action": "freezes"},
+                    "Параметры заморозок сохранены.",
+                )
+                result["actor"] = "developer"
+                append_event(journal_path(), result)
+            elif command == "pin":
+                pins = set(pinned_activities(events))
+                if values["activity"] not in catalog(events):
+                    raise ValueError("Неизвестная активность.")
+                if values["enabled"]:
+                    pins.add(values["activity"])
+                else:
+                    pins.discard(values["activity"])
+                result = make_event(
+                    events, operation, "preferences.updated", "activities",
+                    moment, {"xp_by_stat": {},
+                             "pinned_activities": sorted(pins)},
+                    "Закреплённые активности сохранены.",
+                )
+                append_event(journal_path(), result)
             elif command == "revise":
                 activity = (None if values["cancel"] else
-                            catalog()[values["activity"]])
+                            catalog(events)[values["activity"]])
                 result = revise_completion(
                     journal_path(), values["target"], activity,
                     values["intensity"], operation=operation, local=moment,
@@ -281,6 +428,120 @@ def execute(command, values, operation, *, developer=False):
         return result
 
 
+def update_preferences(events, command, data, operation, moment, display):
+    entity = command
+    payload = {"xp_by_stat": {}}
+    if command == "display":
+        quests = quest_catalog(definitions(events, "quest"), events)
+        settings_data = dict(data)
+        for period in ("daily", "weekly"):
+            field = period + "_pins"
+            mode = settings_data[period + "_mode"]
+            if mode not in ("all", "manual") or any(
+                key not in quests or quests[key][1] != period
+                for key in settings_data[field]
+            ):
+                raise ValueError("Некорректный выбор заданий.")
+            if mode == "all":
+                settings_data[field] = display[field]
+        settings_data["developer_revision"] = (
+            display["developer_revision"] if data["show_developer"]
+            else operation
+        )
+        payload["preferences"] = settings_data
+        kind = "display.updated"
+    elif command == "system":
+        values = {**data, "quiet": data["autostart"] and data["quiet"]}
+        apply = getattr(settings, "LIFERPG_APPLY_SYSTEM", None)
+        if apply is None:
+            raise ValueError("Настройка доступна в приложении Windows.")
+        try:
+            apply(values)
+        except OSError as exc:
+            raise ValueError("Не удалось изменить автозапуск.") from exc
+        kind = "system.preferences"
+        payload["preferences"] = values
+    elif command == "description":
+        if set(data) != {"kind", "target", "texts"}:
+            raise ValueError("Разрешено изменять только тексты.")
+        validate_texts(data["kind"], data["texts"])
+        catalogs = {
+            "quest": quest_catalog(definitions(events, "quest"), events),
+            "achievement": achievement_names(events),
+            "perk": PERKS, "modifier": MODIFIERS,
+        }
+        if data["target"] not in catalogs.get(data["kind"], {}):
+            raise ValueError("Запись не найдена.")
+        kind = "texts.updated"
+        entity = data["target"]
+        payload.update(kind=data["kind"], texts=data["texts"])
+
+    else:
+        kind = "display.activity"
+        entity = data["activity"]
+        if entity not in catalog(events):
+            raise ValueError("Активность не найдена.")
+    event = make_event(events, operation, kind, entity, moment, payload,
+                       "Настройки сохранены.")
+    with journal_lock(journal_path()):
+        append_event(journal_path(), event)
+    return event
+
+
+def create_content(events, command, data, operation, moment):
+    kind = command.removeprefix("create-")
+    validate_definition(kind, data)
+    if kind in ("quest", "achievement"):
+        text = data.get("condition_text")
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("Описание условия обязательно.")
+    activities = catalog(events)
+    custom_quests = definitions(events, "quest")
+    key = f"user-{operation}"
+    payload = {"definition": data, "xp_by_stat": {}, "consequences": []}
+    character, _ = project(events)
+    state = quest_state(events)
+    completions = [
+        (date.fromisoformat(day), item["activity_id"])
+        for day, item in effective_completions(events).values()
+        if item is not None
+    ]
+    if kind == "achievement":
+        condition = data["condition"]
+        catalogs = {"activity": activities,
+                    "streak": quest_catalog(custom_quests, events),
+                    "stat": {*ATTRIBUTE_NAMES, "any"},
+                    "skill": {*achievement_skill_progress(events), "any"}}
+        if condition["target"] not in catalogs[condition["type"]]:
+            raise ValueError("Объект условия не найден.")
+        totals = Counter(activity for _, activity in completions)
+        if condition_met(
+            condition, character, state["streaks"], totals, {},
+            achievement_skill_progress(events),
+        ):
+            payload["consequences"].append(achievement_effect(key))
+    elif kind == "skill":
+        if not data["links"].keys() <= activities.keys():
+            raise ValueError("Активность не найдена.")
+    elif kind == "quest":
+        if data["activity"] not in activities:
+            raise ValueError("Активность не найдена.")
+        day = day_choices(configuration(events), moment)["current"]
+        effects = advance(state, day, custom_quests, events=events)
+        custom_quests[key] = data
+        effects.extend(evaluate(
+            state, day, completions, custom_quests, only=key, events=events
+        ))
+        payload.update(quest_state=state, consequences=effects)
+        evaluate_custom(events, character, payload)
+    event = make_event(events, operation, f"{kind}.created", key, moment,
+                       payload, f"Создано: {data['name']}")
+    event["actor"] = "user"
+    with journal_lock(journal_path()):
+        append_event(journal_path(), event)
+    return event
+
+
 def run_batch(values, operation, moment, events):
     """Deterministic child IDs allow retrying a partly committed batch."""
     first_id = str(uuid5(UUID(operation), "0"))
@@ -296,7 +557,7 @@ def run_batch(values, operation, moment, events):
     try:
         for index in range(values["amount"]):
             event = complete(
-                journal_path(), catalog()[values["activity"]],
+                journal_path(), catalog(events)[values["activity"]],
                 values["intensity"], str(uuid5(UUID(operation), str(index))),
                 moment,
             )
@@ -309,3 +570,10 @@ def run_batch(values, operation, moment, events):
         error = str(exc)
     return {"batch": True, "done": done, "total": values["amount"],
             "xp": totals, "skill": skill, "error": error}
+
+
+def pinned_activities(events):
+    for event in reversed(events):
+        if "pinned_activities" in event["payload"]:
+            return event["payload"]["pinned_activities"]
+    return []

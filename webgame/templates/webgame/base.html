@@ -5,9 +5,9 @@
 <link rel="stylesheet" href="{% static 'webgame/bootstrap.min.css' %}">
 <link rel="stylesheet" href="{% static 'webgame/app.css' %}">
 <script src="{% static 'webgame/app.js' %}" defer></script></head>
-<body><a class="skip-link" href="#main">Перейти к содержимому</a>
+<body{% if tutorial %} class="tutorial-mode"{% endif %}><a class="skip-link" href="#main">Перейти к содержимому</a>
 <aside class="sidebar" id="sidebar">
-<a class="brand" href="{% url 'home' %}"><span class="brand-mark">L</span>Life<span>RPG</span><small>ЛИЧНОЕ РАЗВИТИЕ</small></a>
+<a class="brand" href="{% url 'home' %}"><span class="brand-mark">L</span>Life<span>RPG</span></a>
 <div class="nav-label">ВАШЕ ПУТЕШЕСТВИЕ</div>
 <nav aria-label="Основная навигация">{% for key, label in navigation %}
 <a class="nav-item {% if section == key %}selected{% endif %}" href="{% url 'page' key %}" {% if section == key %}aria-current="page"{% endif %}><span class="nav-dot" aria-hidden="true"></span>{{ label }}</a>
@@ -16,6 +16,19 @@
 <div class="app-shell"><header class="topbar">
 <button class="menu-button" id="menu-toggle" type="button" aria-controls="sidebar" aria-expanded="false" aria-label="Открыть навигацию">☰</button>
 <span class="breadcrumb-label">Ваш персонаж <span>/</span> {{ title|default:"LifeRPG" }}</span>
-<span class="topbar-right">{% if developer %}<a class="dev-badge" href="{% url 'page' 'developer' %}">Режим разработчика</a>{% endif %}<span class="avatar" aria-hidden="true">Я</span></span></header>
+<span class="topbar-right">{% if developer %}<a class="dev-badge" href="{% url 'page' 'developer' %}">Режим разработчика</a>{% endif %}<details class="notification-bell"><summary aria-label="Последние уведомления">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
+</summary><div class="notification-menu">
+{% for item in notification_recent %}<p>{{ item.text }}<small>{{ item.time }}</small></p>
+{% empty %}<p>Пока нет уведомлений.</p>{% endfor %}
+<a class="btn btn-outline-secondary" href="{% url 'page' 'notifications' %}">Все уведомления</a>
+</div></details></span></header>
+{{ notification_toasts|json_script:"notification-toasts" }}
+<div id="toast-stack" role="region" aria-label="Новые уведомления" aria-live="polite"></div>
 <main id="main" tabindex="-1">{% for message in messages %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}{% block content %}{% endblock %}
-<footer class="page-footer">LIFERPG <span>Становитесь сильнее в своём ритме.</span></footer></main></div></body></html>
+<footer class="page-footer">LIFERPG <span>Что наша жизнь? Игра!</span></footer></main></div>{% if tutorial %}{{ tutorial|json_script:"tutorial-data" }}<aside class="tutorial-guide panel" aria-label="Обучение">
+<p class="green">Демонстрация · шаг {{ tutorial.step }} из {{ tutorial.total }}</p><h2 tabindex="-1">{{ tutorial.title }}</h2><p>{{ tutorial.text }}</p>
+<form action="{% url 'onboarding-action' %}" method="post">{% csrf_token %}
+<button class="btn btn-outline-secondary" name="move" value="back"{% if tutorial.step == 1 %} disabled{% endif %}>Назад</button>
+<button class="btn btn-primary" name="move" value="{% if tutorial.last %}finish{% else %}next{% endif %}">{% if tutorial.last %}Завершить{% else %}Далее{% endif %}</button>
+<button class="btn btn-outline-secondary" name="move" value="skip">Пропустить</button></form></aside>{% endif %}</body></html>

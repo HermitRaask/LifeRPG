@@ -28,19 +28,19 @@ def test_perk_quest_and_streak_replay(tmp_path):
     activity = catalog()["meditation"]
     monday = datetime(2026, 11, 9, 4, tzinfo=timezone.utc)
 
-    for offset in range(8):
+    for offset in range(9):
         event = complete(
             path, activity, "2", str(uuid4()), monday + timedelta(days=offset)
         )
-        assert event["payload"]["xp_by_stat"]["will"]["credited_xp"] == 75
+        assert event["payload"]["xp_by_stat"]["will"]["credited_xp"] == 62
 
     events = read_events(path)
     assert project(events)[0].attribute("will").level == 5
     perks, victory = active_perks(events)
     assert victory and "victory" in perks and "lazy" not in perks
-    assert quest_state(events)["streaks"]["meditation"]["duration"] == 8
+    assert quest_state(events)["streaks"]["meditation"]["duration"] == 9
     final = complete(
-        path, activity, "2", str(uuid4()), monday + timedelta(days=8)
+        path, activity, "2", str(uuid4()), monday + timedelta(days=9)
     )
     assert final["payload"]["xp_by_stat"]["will"]["credited_xp"] == 50
     with pytest.raises(ValueError, match="уже пройден"):
@@ -90,7 +90,7 @@ def test_quest_and_or_and_bank_caps():
     "perk, activity, stat, expected",
     [
         ("creative", "writing", "will", 2),
-        ("creative", "writing", "creativity", 57),
+        ("creative", "writing", "creativity", 50),
         ("books", "reading", "intelligence", 4),
         ("sleep", "sleep", "will", 22),
         ("chronic", "training", "strength", 35),
@@ -121,7 +121,7 @@ def test_old_snapshot_survives_and_next_award_uses_new_curve(tmp_path):
     will = project(read_events(path))[0].attribute("will")
     assert (will.level, will.current_xp) == (25, 950)
     event = complete(path, catalog()["meditation"], "2", str(uuid4()), day)
-    assert event["rules_version"] == 5
+    assert event["rules_version"] == 7
     will = project(read_events(path))[0].attribute("will")
     assert (will.level, will.current_xp) == (26, 0)
 
